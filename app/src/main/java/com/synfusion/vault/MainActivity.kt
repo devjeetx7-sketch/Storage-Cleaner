@@ -6,11 +6,12 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
-import androidx.lifecycle.lifecycleScope
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -19,16 +20,19 @@ import com.synfusion.vault.security.VaultState
 import com.synfusion.vault.ui.cleaner.CleanerDashboard
 import com.synfusion.vault.ui.settings.AuthScreen
 import com.synfusion.vault.vault.VaultScreen
+import com.synfusion.vault.media.MediaViewerScreen
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.synfusion.vault.security.EncryptionManager
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     @Inject
     lateinit var authManager: AuthManager
+
+    @Inject
+    lateinit var encryptionManager: EncryptionManager
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +65,15 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable("vault") {
+                            // Launch effect instead of navigating in composition
+                            LaunchedEffect(vaultState) {
+                                if (vaultState == VaultState.LOCKED) {
+                                    navController.navigate("auth") {
+                                        popUpTo("vault") { inclusive = true }
+                                    }
+                                }
+                            }
+
                             if (vaultState == VaultState.UNLOCKED) {
                                 VaultScreen(
                                     onBack = {
@@ -68,23 +81,38 @@ class MainActivity : ComponentActivity() {
                                         navController.navigate("cleaner") {
                                             popUpTo(0)
                                         }
+                                    },
+                                    onOpenMedia = { item ->
+                                        navController.navigate("media_viewer/${item.id}")
                                     }
                                 )
-                            } else {
-                                navController.navigate("auth") {
-                                    popUpTo("vault") { inclusive = true }
-                                }
+                            }
+                        }
+                        composable("media_viewer/{itemId}") { backStackEntry ->
+                            val itemId = backStackEntry.arguments?.getString("itemId")
+
+                            // Get the item from the VaultViewModel (shared)
+                            val parentEntry = remember(backStackEntry) {
+                                navController.getBackStackEntry("vault")
+                            }
+                            val vaultViewModel: com.synfusion.vault.vault.VaultViewModel = hiltViewModel(parentEntry)
+                            val items by vaultViewModel.vaultItems.collectAsState()
+
+                            val item = items.find { it.id == itemId }
+
+                            if (item != null) {
+                                MediaViewerScreen(
+                                    entity = item,
+                                    encryptionManager = encryptionManager,
+                                    onBack = {
+                                        navController.popBackStack()
+                                    }
+                                )
                             }
                         }
                     }
                 }
             }
         }
-    }
-
-    override fun onPause() {
-        super.onPause()
-        // Auto-lock vault on background
-        authManager.lockVault()
     }
 }

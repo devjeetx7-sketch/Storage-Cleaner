@@ -31,9 +31,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
+import coil.ImageLoader
 import com.synfusion.vault.data.VaultEntity
 import java.io.File
 
@@ -41,7 +44,8 @@ import java.io.File
 @Composable
 fun VaultScreen(
     viewModel: VaultViewModel = hiltViewModel(),
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenMedia: (VaultEntity) -> Unit
 ) {
     val context = LocalContext.current
     val items by viewModel.vaultItems.collectAsState()
@@ -99,7 +103,6 @@ fun VaultScreen(
     ) { uris ->
         if (uris.isNotEmpty()) {
             viewModel.importFiles(uris, selectedMediaType) { originalUris ->
-                // For audio via SAF, we try to map to MediaStore. If it fails, fallback to direct deletion.
                 val mediaStoreUris = originalUris.mapNotNull { uri ->
                     if (DocumentsContract.isDocumentUri(context, uri)) {
                         val docId = DocumentsContract.getDocumentId(uri)
@@ -263,7 +266,7 @@ fun VaultScreen(
                             if (selectedItems.isNotEmpty()) {
                                 viewModel.toggleSelection(item)
                             } else {
-                                // TODO: Handle open/play media
+                                onOpenMedia(item)
                             }
                         }
                     )
@@ -295,23 +298,32 @@ fun VaultItem(
         )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Placeholder since we cannot load encrypted images directly via Coil without custom fetcher
-            Column(
-                modifier = Modifier.fillMaxSize().padding(8.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Icon(
-                    imageVector = when(item.mediaType) {
-                        "images" -> Icons.Default.Image
-                        "videos" -> Icons.Default.Videocam
-                        "audio" -> Icons.Default.AudioFile
-                        else -> Icons.AutoMirrored.Filled.InsertDriveFile
-                    },
+            if (item.mediaType == "images" || item.mediaType == "videos") {
+                AsyncImage(
+                    model = item,
                     contentDescription = null,
-                    modifier = Modifier.size(48.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
                 )
-                if (item.mediaType == "audio") {
+                if (item.mediaType == "videos") {
+                    Icon(
+                        imageVector = Icons.Default.PlayCircleOutline,
+                        contentDescription = "Video",
+                        tint = Color.White,
+                        modifier = Modifier.align(Alignment.Center).size(32.dp)
+                    )
+                }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxSize().padding(8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AudioFile,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp)
+                    )
                     Text(item.originalName, maxLines = 1)
                 }
             }
