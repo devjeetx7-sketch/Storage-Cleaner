@@ -203,11 +203,11 @@ fun VaultScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 16.dp)
-                    .height(64.dp),
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f),
-                tonalElevation = 0.dp,
-                shadowElevation = 12.dp
+                    .height(68.dp),
+                shape = RoundedCornerShape(30.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                tonalElevation = 4.dp,
+                shadowElevation = 14.dp
             ) {
                 NavigationBar(
                     containerColor = Color.Transparent,
