@@ -23,8 +23,8 @@ jobs:
 
       - name: Generate Dummy Keystore for CI Build
         run: |
-          mkdir -p keystore
-          keytool -genkey -v -keystore keystore/release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias key0 -storepass android -keypass android -dname "CN=Unknown, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown"
+          mkdir -p app/keystore
+          keytool -genkey -v -keystore app/keystore/release.jks -keyalg RSA -keysize 2048 -validity 10000 -alias key0 -storepass android -keypass android -dname "CN=Unknown, OU=Unknown, O=Unknown, L=Unknown, ST=Unknown, C=Unknown"
 
       - name: Build Release APK
         run: ./gradlew clean assembleRelease
