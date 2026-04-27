@@ -1,8 +1,10 @@
 package com.synfusion.vault.vault
 
+import android.Manifest
 import android.app.Activity
 import android.content.ContentUris
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
@@ -32,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import coil.compose.AsyncImage
 import coil.ImageLoader
@@ -124,6 +127,60 @@ fun VaultScreen(
         }
     }
 
+    var permissionDeniedMessage by remember { mutableStateOf<String?>(null) }
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.values.all { it }
+        if (allGranted) {
+            if (selectedMediaType == "images" || selectedMediaType == "videos") {
+                val visualMediaType = if (selectedMediaType == "images") {
+                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                } else {
+                    ActivityResultContracts.PickVisualMedia.VideoOnly
+                }
+                importLauncher.launch(PickVisualMediaRequest(visualMediaType))
+            } else {
+                audioImportLauncher.launch(arrayOf("audio/*"))
+            }
+        } else {
+            permissionDeniedMessage = "Permission denied. Vault cannot import media without storage access."
+        }
+    }
+
+    fun requestPermissionsAndLaunch() {
+        val permissionsToRequest = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            when (selectedMediaType) {
+                "images" -> permissionsToRequest.add(Manifest.permission.READ_MEDIA_IMAGES)
+                "videos" -> permissionsToRequest.add(Manifest.permission.READ_MEDIA_VIDEO)
+                "audio" -> permissionsToRequest.add(Manifest.permission.READ_MEDIA_AUDIO)
+            }
+        } else {
+            permissionsToRequest.add(Manifest.permission.READ_EXTERNAL_STORAGE)
+        }
+
+        val notGranted = permissionsToRequest.filter {
+            ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (notGranted.isEmpty()) {
+            if (selectedMediaType == "images" || selectedMediaType == "videos") {
+                val visualMediaType = if (selectedMediaType == "images") {
+                    ActivityResultContracts.PickVisualMedia.ImageOnly
+                } else {
+                    ActivityResultContracts.PickVisualMedia.VideoOnly
+                }
+                importLauncher.launch(PickVisualMediaRequest(visualMediaType))
+            } else {
+                audioImportLauncher.launch(arrayOf("audio/*"))
+            }
+        } else {
+            permissionLauncher.launch(notGranted.toTypedArray())
+        }
+    }
+
     Scaffold(
         topBar = {
             if (selectedItems.isNotEmpty()) {
@@ -136,7 +193,7 @@ fun VaultScreen(
                     },
                     actions = {
                         IconButton(onClick = {
-                            viewModel.exportSelectedItems { exportedPaths ->
+                            viewModel.exportSelectedItems { _ ->
                                 // Optional UI feedback
                             }
                         }, enabled = !isProcessing) {
@@ -213,18 +270,7 @@ fun VaultScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = {
-                    if (selectedMediaType == "images" || selectedMediaType == "videos") {
-                        val visualMediaType = if (selectedMediaType == "images") {
-                            ActivityResultContracts.PickVisualMedia.ImageOnly
-                        } else {
-                            ActivityResultContracts.PickVisualMedia.VideoOnly
-                        }
-                        importLauncher.launch(PickVisualMediaRequest(visualMediaType))
-                    } else {
-                        audioImportLauncher.launch(arrayOf("audio/*"))
-                    }
-                }
+                onClick = { requestPermissionsAndLaunch() }
             ) {
                 Icon(Icons.Default.Add, "Import")
             }
@@ -268,6 +314,19 @@ fun VaultScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     CircularProgressIndicator()
+                }
+            }
+
+            if (permissionDeniedMessage != null) {
+                Snackbar(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+                    action = {
+                        TextButton(onClick = { permissionDeniedMessage = null }) {
+                            Text("OK")
+                        }
+                    }
+                ) {
+                    Text(permissionDeniedMessage!!)
                 }
             }
         }

@@ -43,8 +43,17 @@ class VaultRepository @Inject constructor(
             return@withContext null
         }
 
+        // Validate MimeType
+        val contentResolver = context.contentResolver
+        val mimeType = contentResolver.getType(uri)
+        if (mimeType == null || (!mimeType.startsWith("image/") && !mimeType.startsWith("video/") && !mimeType.startsWith("audio/"))) {
+            errorLogger.logError(ErrorLogger.Codes.INVALID_URI, "Invalid or null MIME type", null, mediaType, "import")
+            return@withContext null
+        }
+
+        var tempFile: File? = null
         try {
-            val originalName = getFileName(uri) ?: "unknown_file"
+            val originalName = getFileName(uri) ?: UUID.randomUUID().toString()
             val originalPath = uri.toString()
             val id = UUID.randomUUID().toString()
             val encryptedFileName = "$id.enc"
@@ -53,12 +62,12 @@ class VaultRepository @Inject constructor(
                 if (!exists()) mkdirs()
             }
 
-            val tempFile = File(context.cacheDir, "$id.tmp")
+            tempFile = File(context.cacheDir, "$id.tmp")
 
-            // Safe copy to temp file first
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            // Safe copy to temp file first using buffered stream
+            contentResolver.openInputStream(uri)?.use { inputStream ->
                 FileOutputStream(tempFile).use { outputStream ->
-                    inputStream.copyTo(outputStream)
+                    inputStream.copyTo(outputStream, bufferSize = 8192) // 8KB buffer
                 }
             } ?: throw IllegalStateException("Cannot open input stream for URI: $uri")
 
@@ -70,9 +79,6 @@ class VaultRepository @Inject constructor(
                     encryptionManager.encrypt(inputStream, outputStream)
                 }
             }
-
-            // Clean up temp file
-            tempFile.delete()
 
             val entity = VaultEntity(
                 id = id,
@@ -95,6 +101,13 @@ class VaultRepository @Inject constructor(
                 operation = "import"
             )
             return@withContext null
+        } finally {
+            // Guarantee cleanup of plaintext temp file
+            try {
+                tempFile?.delete()
+            } catch (e: Exception) {
+                // Ignore deletion errors
+            }
         }
     }
 
@@ -173,27 +186,20 @@ class VaultRepository @Inject constructor(
     }
 
     private fun getFileName(uri: Uri): String? {
-        var result: String? = null
         if (uri.scheme == "content") {
             try {
                 context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                     if (cursor.moveToFirst()) {
                         val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
                         if (index != -1) {
-                            result = cursor.getString(index)
+                            return cursor.getString(index)
                         }
                     }
                 }
             } catch (e: Exception) {
-                // Ignore query exceptions
+                // Return null if cursor fails
             }
         }
-        if (result == null) {
-            result = uri.path?.let { path ->
-                val cut = path.lastIndexOf('/')
-                if (cut != -1) path.substring(cut + 1) else path
-            }
-        }
-        return result
+        return null
     }
 }
