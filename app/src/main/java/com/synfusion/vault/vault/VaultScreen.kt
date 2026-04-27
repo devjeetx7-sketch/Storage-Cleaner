@@ -202,7 +202,10 @@ fun VaultScreen(
                         }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        containerColor = MaterialTheme.colorScheme.primaryContainer,
+                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 )
             } else if (isSearchActive) {
@@ -215,7 +218,9 @@ fun VaultScreen(
                             singleLine = true,
                             colors = TextFieldDefaults.colors(
                                 focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent
+                                unfocusedContainerColor = Color.Transparent,
+                                focusedIndicatorColor = Color.Transparent,
+                                unfocusedIndicatorColor = Color.Transparent
                             )
                         )
                     },
@@ -226,11 +231,15 @@ fun VaultScreen(
                         }) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        titleContentColor = MaterialTheme.colorScheme.onBackground
+                    )
                 )
             } else {
                 TopAppBar(
-                    title = { Text("Hidden Vault") },
+                    title = { Text("Hidden Vault", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
                     navigationIcon = {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
@@ -240,12 +249,19 @@ fun VaultScreen(
                         IconButton(onClick = { isSearchActive = true }) {
                             Icon(Icons.Default.Search, "Search")
                         }
-                    }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        titleContentColor = MaterialTheme.colorScheme.onBackground
+                    )
                 )
             }
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ) {
                 NavigationBarItem(
                     selected = selectedMediaType == "images",
                     onClick = { viewModel.setMediaType("images") },
@@ -268,7 +284,9 @@ fun VaultScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { requestPermissionsAndLaunch() }
+                onClick = { requestPermissionsAndLaunch() },
+                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
             ) {
                 Icon(Icons.Default.Add, "Import")
             }
@@ -339,7 +357,7 @@ fun VaultItem(
     onSelect: () -> Unit,
     onClick: () -> Unit
 ) {
-    Card(
+    ElevatedCard(
         modifier = Modifier
             .padding(4.dp)
             .aspectRatio(if (item.mediaType == "audio") 4f else 1f)
@@ -347,9 +365,9 @@ fun VaultItem(
                 onClick = onClick,
                 onLongClick = onSelect
             ),
-        shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(
-            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
         )
     ) {
         Box(modifier = Modifier.fillMaxSize()) {

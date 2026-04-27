@@ -9,9 +9,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AppBlocking
 import androidx.compose.material.icons.filled.CleaningServices
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.FolderSpecial
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -116,9 +122,13 @@ fun CleanerDashboard(
                         label = "StorageProgress"
                     )
 
+                    val trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    val startColor = MaterialTheme.colorScheme.primary
+                    val endColor = MaterialTheme.colorScheme.tertiary
+
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         drawArc(
-                            color = Color.LightGray.copy(alpha = 0.3f),
+                            color = trackColor,
                             startAngle = 135f,
                             sweepAngle = 270f,
                             useCenter = false,
@@ -127,7 +137,7 @@ fun CleanerDashboard(
 
                         drawArc(
                             brush = Brush.linearGradient(
-                                colors = listOf(Color(0xFF64B5F6), Color(0xFF1976D2))
+                                colors = listOf(startColor, endColor)
                             ),
                             startAngle = 135f,
                             sweepAngle = 270f * animatedProgress,
@@ -137,14 +147,15 @@ fun CleanerDashboard(
                     }
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        val percentage = (animatedProgress * 100).toInt()
                         Text(
-                            text = if (isCleaning) "Cleaning..." else formatSize(stats.usedSpace),
-                            style = MaterialTheme.typography.headlineMedium,
+                            text = if (isCleaning) "Cleaning..." else "$percentage%",
+                            style = MaterialTheme.typography.displayMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
-                            text = "of ${formatSize(stats.totalSpace)} used",
+                            text = "${formatSize(stats.usedSpace)} / ${formatSize(stats.totalSpace)}",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -153,50 +164,66 @@ fun CleanerDashboard(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Info Cards
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    InfoCard(
-                        modifier = Modifier.weight(1f),
-                        title = "Junk Files",
-                        value = formatSize(stats.junkSize),
-                        icon = Icons.Default.Warning,
-                        color = Color(0xFFE57373)
-                    )
-                    Spacer(modifier = Modifier.width(16.dp))
-                    InfoCard(
-                        modifier = Modifier.weight(1f),
-                        title = "Cache",
-                        value = formatSize(stats.cacheSize),
-                        icon = Icons.Default.Memory,
-                        color = Color(0xFF81C784)
-                    )
-                }
+                // Info Cards - Grid Layout
+                val cardItems = listOf(
+                    Triple("Junk Files", formatSize(stats.junkSize), Icons.Default.Warning),
+                    Triple("Cache", formatSize(stats.cacheSize), Icons.Default.Memory),
+                    Triple("Large Files", "${stats.largeFilesCount} files", Icons.Default.FolderSpecial),
+                    Triple("Duplicate Media", "${stats.duplicateImagesCount} files", Icons.Default.ContentCopy),
+                    Triple("App Residuals", "Scanning...", Icons.Default.AppBlocking)
+                )
 
-                Spacer(modifier = Modifier.weight(1f))
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(cardItems) { (title, value, icon) ->
+                        InfoCard(
+                            title = title,
+                            value = value,
+                            icon = icon
+                        )
+                    }
+                }
 
                 if (freedSpace > 0 && !isCleaning) {
                     Text(
                         text = "Freed up ${formatSize(freedSpace)}!",
                         color = Color(0xFF4CAF50),
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 16.dp)
+                        modifier = Modifier.padding(vertical = 16.dp)
                     )
+                } else {
+                    Spacer(modifier = Modifier.height(32.dp))
                 }
 
                 Button(
                     onClick = { viewModel.startCleaning() },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
-                    shape = CircleShape,
+                        .height(64.dp)
+                        .padding(bottom = 8.dp),
+                    shape = RoundedCornerShape(32.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp, pressedElevation = 4.dp),
                     enabled = !isCleaning
                 ) {
-                    Icon(Icons.Default.CleaningServices, contentDescription = "Clean")
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (isCleaning) "Cleaning in progress..." else "Clean Junk")
+                    Icon(
+                        Icons.Default.CleaningServices,
+                        contentDescription = "Clean",
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text(
+                        text = if (isCleaning) "Cleaning in progress..." else "Clean Junk",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
@@ -208,13 +235,15 @@ fun InfoCard(
     modifier: Modifier = Modifier,
     title: String,
     value: String,
-    icon: ImageVector,
-    color: Color
+    icon: ImageVector
 ) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-        shape = RoundedCornerShape(16.dp)
+    ElevatedCard(
+        modifier = modifier.fillMaxWidth(),
+        colors = CardDefaults.elevatedCardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh
+        ),
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -223,17 +252,18 @@ fun InfoCard(
             Box(
                 modifier = Modifier
                     .size(40.dp)
-                    .background(color.copy(alpha = 0.2f), CircleShape),
+                    .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(icon, contentDescription = null, tint = color)
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
             }
             Spacer(modifier = Modifier.height(12.dp))
-            Text(text = title, style = MaterialTheme.typography.bodyMedium)
+            Text(text = title, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 text = value,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
     }

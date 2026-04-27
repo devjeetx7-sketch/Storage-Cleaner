@@ -22,6 +22,7 @@ import com.synfusion.vault.ui.cleaner.CleanerDashboard
 import com.synfusion.vault.ui.settings.AuthScreen
 import com.synfusion.vault.vault.VaultScreen
 import com.synfusion.vault.media.MediaViewerScreen
+import com.synfusion.vault.ui.theme.AppTheme
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import com.synfusion.vault.security.EncryptionManager
@@ -39,7 +40,7 @@ class MainActivity : FragmentActivity() {
         super.onCreate(savedInstanceState)
 
         setContent {
-            MaterialTheme {
+            AppTheme {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
