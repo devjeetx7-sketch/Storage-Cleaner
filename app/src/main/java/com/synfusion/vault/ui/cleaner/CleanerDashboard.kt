@@ -33,19 +33,27 @@ import kotlinx.coroutines.delay
 @Composable
 fun CleanerDashboard(
     viewModel: CleanerViewModel = hiltViewModel(),
-    onVaultTrigger: () -> Unit
+    onVaultTrigger: () -> Unit,
+    onDebugTrigger: () -> Unit
 ) {
     val stats by viewModel.storageStats.collectAsState()
     val isCleaning by viewModel.isCleaning.collectAsState()
     val freedSpace by viewModel.freedSpace.collectAsState()
 
-    var tapCount by remember { mutableIntStateOf(0) }
+    var vaultTapCount by remember { mutableIntStateOf(0) }
+    var debugTapCount by remember { mutableIntStateOf(0) }
 
-    // Reset tap count after delay
-    LaunchedEffect(tapCount) {
-        if (tapCount > 0) {
+    LaunchedEffect(vaultTapCount) {
+        if (vaultTapCount > 0) {
             delay(1500)
-            tapCount = 0
+            vaultTapCount = 0
+        }
+    }
+
+    LaunchedEffect(debugTapCount) {
+        if (debugTapCount > 0) {
+            delay(2000)
+            debugTapCount = 0
         }
     }
 
@@ -56,13 +64,19 @@ fun CleanerDashboard(
                     Text(
                         text = "Storage Cleaner",
                         fontWeight = FontWeight.Bold,
-                        modifier = Modifier.pointerInput(Unit) {
-                            detectTapGestures(
-                                onLongPress = {
-                                    onVaultTrigger()
-                                }
-                            )
-                        }
+                        modifier = Modifier
+                            .pointerInput(Unit) {
+                                detectTapGestures(
+                                    onLongPress = { onVaultTrigger() },
+                                    onTap = {
+                                        debugTapCount++
+                                        if (debugTapCount >= 7) {
+                                            debugTapCount = 0
+                                            onDebugTrigger()
+                                        }
+                                    }
+                                )
+                            }
                     )
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -101,9 +115,9 @@ fun CleanerDashboard(
                     modifier = Modifier
                         .size(200.dp)
                         .clickable {
-                            tapCount++
-                            if (tapCount >= 5) {
-                                tapCount = 0
+                            vaultTapCount++
+                            if (vaultTapCount >= 5) {
+                                vaultTapCount = 0
                                 onVaultTrigger()
                             }
                         }

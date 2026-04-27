@@ -8,6 +8,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import com.synfusion.vault.security.EncryptionManager
+import com.synfusion.vault.debug.ErrorLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -22,7 +23,8 @@ import javax.inject.Singleton
 class VaultRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val vaultDao: VaultDao,
-    private val encryptionManager: EncryptionManager
+    private val encryptionManager: EncryptionManager,
+    private val errorLogger: ErrorLogger
 ) {
 
     private val vaultDir = File(context.getExternalFilesDir(null), "vault").apply {
@@ -35,104 +37,155 @@ class VaultRepository @Inject constructor(
 
     fun searchItems(query: String): Flow<List<VaultEntity>> = vaultDao.searchItems(query)
 
-    suspend fun importAndEncryptFile(uri: Uri, mediaType: String) = withContext(Dispatchers.IO) {
-        val originalName = getFileName(uri) ?: "unknown_file"
-        val originalPath = uri.toString()
-        val id = UUID.randomUUID().toString()
-        val encryptedFileName = "$id.enc"
-
-        val typeDir = File(vaultDir, mediaType).apply {
-            if (!exists()) mkdirs()
+    suspend fun importAndEncryptFile(uri: Uri?, mediaType: String): Uri? = withContext(Dispatchers.IO) {
+        if (uri == null) {
+            errorLogger.logError(ErrorLogger.Codes.INVALID_URI, "Null URI provided", null, mediaType, "import")
+            return@withContext null
         }
 
-        val encryptedFile = File(typeDir, encryptedFileName)
+        try {
+            val originalName = getFileName(uri) ?: "unknown_file"
+            val originalPath = uri.toString()
+            val id = UUID.randomUUID().toString()
+            val encryptedFileName = "$id.enc"
 
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            FileOutputStream(encryptedFile).use { outputStream ->
-                encryptionManager.encrypt(inputStream, outputStream)
+            val typeDir = File(vaultDir, mediaType).apply {
+                if (!exists()) mkdirs()
             }
+
+            val tempFile = File(context.cacheDir, "$id.tmp")
+
+            // Safe copy to temp file first
+            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                FileOutputStream(tempFile).use { outputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            } ?: throw IllegalStateException("Cannot open input stream for URI: $uri")
+
+            val encryptedFile = File(typeDir, encryptedFileName)
+
+            // Encrypt temp file
+            tempFile.inputStream().use { inputStream ->
+                FileOutputStream(encryptedFile).use { outputStream ->
+                    encryptionManager.encrypt(inputStream, outputStream)
+                }
+            }
+
+            // Clean up temp file
+            tempFile.delete()
+
+            val entity = VaultEntity(
+                id = id,
+                originalName = originalName,
+                originalPath = originalPath,
+                encryptedPath = encryptedFile.absolutePath,
+                mediaType = mediaType,
+                size = encryptedFile.length(),
+                dateAdded = System.currentTimeMillis()
+            )
+
+            vaultDao.insertItem(entity)
+            return@withContext uri
+        } catch (e: Exception) {
+            errorLogger.logError(
+                errorCode = if (e is IllegalStateException) ErrorLogger.Codes.INVALID_URI else ErrorLogger.Codes.ENCRYPT,
+                message = "Failed to import and encrypt file",
+                exception = e,
+                mediaType = mediaType,
+                operation = "import"
+            )
+            return@withContext null
         }
-
-        val entity = VaultEntity(
-            id = id,
-            originalName = originalName,
-            originalPath = originalPath,
-            encryptedPath = encryptedFile.absolutePath,
-            mediaType = mediaType,
-            size = encryptedFile.length(),
-            dateAdded = System.currentTimeMillis()
-        )
-
-        vaultDao.insertItem(entity)
-
-        uri
     }
 
-    suspend fun decryptAndExportFile(item: VaultEntity): String = withContext(Dispatchers.IO) {
-        val encryptedFile = File(item.encryptedPath)
+    suspend fun decryptAndExportFile(item: VaultEntity): String? = withContext(Dispatchers.IO) {
+        try {
+            val encryptedFile = File(item.encryptedPath)
+            if (!encryptedFile.exists()) {
+                throw java.io.FileNotFoundException("Encrypted file missing: ${item.encryptedPath}")
+            }
 
-        val collection = when(item.mediaType) {
-            "images" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-            "videos" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-            "audio" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Downloads.EXTERNAL_CONTENT_URI
-        }
+            val collection = when(item.mediaType) {
+                "images" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                "videos" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                "audio" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            }
 
-        val relativePath = when(item.mediaType) {
-            "images" -> Environment.DIRECTORY_PICTURES
-            "videos" -> Environment.DIRECTORY_MOVIES
-            "audio" -> Environment.DIRECTORY_MUSIC
-            else -> Environment.DIRECTORY_DOWNLOADS
-        }
+            val relativePath = when(item.mediaType) {
+                "images" -> Environment.DIRECTORY_PICTURES
+                "videos" -> Environment.DIRECTORY_MOVIES
+                "audio" -> Environment.DIRECTORY_MUSIC
+                else -> Environment.DIRECTORY_DOWNLOADS
+            }
 
-        val contentValues = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, item.originalName)
-            put(MediaStore.MediaColumns.SIZE, item.size)
+            val contentValues = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, item.originalName)
+                put(MediaStore.MediaColumns.SIZE, item.size)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                    put(MediaStore.MediaColumns.IS_PENDING, 1)
+                }
+            }
+
+            val newUri = context.contentResolver.insert(collection, contentValues)
+                ?: throw IllegalStateException("Failed to create MediaStore record")
+
+            context.contentResolver.openOutputStream(newUri)?.use { outputStream ->
+                encryptedFile.inputStream().use { inputStream ->
+                    encryptionManager.decrypt(inputStream, outputStream)
+                }
+            }
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-                put(MediaStore.MediaColumns.IS_PENDING, 1)
+                contentValues.clear()
+                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                context.contentResolver.update(newUri, contentValues, null, null)
             }
+
+            // Clean up vault
+            vaultDao.deleteItem(item)
+            encryptedFile.delete()
+
+            return@withContext newUri.toString()
+        } catch (e: Exception) {
+            errorLogger.logError(
+                errorCode = if (e is java.io.FileNotFoundException) ErrorLogger.Codes.FILE_MISSING else ErrorLogger.Codes.DECRYPT,
+                message = "Failed to decrypt and export file",
+                exception = e,
+                mediaType = item.mediaType,
+                operation = "export"
+            )
+            return@withContext null
         }
-
-        val newUri = context.contentResolver.insert(collection, contentValues) ?: throw IllegalStateException("Failed to create MediaStore record")
-
-        context.contentResolver.openOutputStream(newUri)?.use { outputStream ->
-            encryptedFile.inputStream().use { inputStream ->
-                encryptionManager.decrypt(inputStream, outputStream)
-            }
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            contentValues.clear()
-            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-            context.contentResolver.update(newUri, contentValues, null, null)
-        }
-
-        // Clean up vault
-        vaultDao.deleteItem(item)
-        encryptedFile.delete()
-
-        newUri.toString()
     }
 
     suspend fun deleteVaultItem(item: VaultEntity) = withContext(Dispatchers.IO) {
-        val encryptedFile = File(item.encryptedPath)
-        if (encryptedFile.exists()) {
-            encryptedFile.delete()
+        try {
+            val encryptedFile = File(item.encryptedPath)
+            if (encryptedFile.exists()) {
+                encryptedFile.delete()
+            }
+            vaultDao.deleteItem(item)
+        } catch (e: Exception) {
+            errorLogger.logError(ErrorLogger.Codes.UNKNOWN, "Failed to delete item", e, item.mediaType, "delete")
         }
-        vaultDao.deleteItem(item)
     }
 
     private fun getFileName(uri: Uri): String? {
         var result: String? = null
         if (uri.scheme == "content") {
-            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    if (index != -1) {
-                        result = cursor.getString(index)
+            try {
+                context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                        if (index != -1) {
+                            result = cursor.getString(index)
+                        }
                     }
                 }
+            } catch (e: Exception) {
+                // Ignore query exceptions
             }
         }
         if (result == null) {
