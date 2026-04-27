@@ -201,12 +201,12 @@ fun VaultScreen(
         bottomBar = {
             Surface(
                 modifier = Modifier
-                    .padding(start = 24.dp, end = 24.dp, bottom = 24.dp)
                     .fillMaxWidth()
-                    .height(72.dp),
-                shape = RoundedCornerShape(36.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.85f),
-                tonalElevation = 12.dp,
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
+                    .height(64.dp),
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.7f),
+                tonalElevation = 0.dp,
                 shadowElevation = 12.dp
             ) {
                 NavigationBar(
