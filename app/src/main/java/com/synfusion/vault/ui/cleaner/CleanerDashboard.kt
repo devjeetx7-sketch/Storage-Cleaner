@@ -1,7 +1,9 @@
 package com.synfusion.vault.ui.cleaner
 
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -28,12 +30,18 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerInputScope
+import androidx.compose.ui.input.pointer.changedToDown
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -49,36 +57,30 @@ fun CleanerDashboard(
     val isCleaning by viewModel.isCleaning.collectAsState()
     val freedSpace by viewModel.freedSpace.collectAsState()
 
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("vault_prefs", android.content.Context.MODE_PRIVATE) }
+    var showTooltip by remember { mutableStateOf(!prefs.getBoolean("vault_tooltip_shown", false)) }
+
     var vaultTapCount by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(vaultTapCount) {
         if (vaultTapCount > 0) {
-            delay(1500)
+            delay(4000)
             vaultTapCount = 0
         }
     }
 
+    LaunchedEffect(showTooltip) {
+        if (showTooltip) {
+            delay(5000)
+            if (showTooltip) {
+                showTooltip = false
+                prefs.edit().putBoolean("vault_tooltip_shown", true).apply()
+            }
+        }
+    }
+
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = "Storage Cleaner",
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier
-                            .pointerInput(Unit) {
-                                detectTapGestures(
-                                    onLongPress = { onVaultTrigger() }
-                                )
-                            }
-                    )
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                )
-            )
-        },
         floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
             Button(
@@ -112,6 +114,7 @@ fun CleanerDashboard(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(paddingValues)
         ) {
             val cardItems = listOf(
@@ -140,38 +143,38 @@ fun CleanerDashboard(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        // Invisible corner trigger
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.End)
-                                .size(48.dp)
-                                .pointerInput(Unit) {
-                                    detectTapGestures(onLongPress = { onVaultTrigger() })
-                                }
-                        )
-
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(32.dp))
 
                         // Storage Meter
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(200.dp)
-                                .combinedClickable(
-                                    indication = null,
-                                    interactionSource = remember { MutableInteractionSource() },
-                                    onClick = {
-                                        vaultTapCount++
-                                        if (vaultTapCount >= 5) {
-                                            vaultTapCount = 0
+                        TooltipBox(
+                            positionProvider = TooltipDefaults.rememberPlainTooltipPositionProvider(),
+                            tooltip = {
+                                if (showTooltip) {
+                                    RichTooltip(
+                                        title = { Text("💡 Hidden Vault") },
+                                        text = { Text("Tap the center 7 times to access vault") },
+                                        colors = TooltipDefaults.richTooltipColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        ),
+                                        shape = RoundedCornerShape(16.dp)
+                                    )
+                                }
+                            },
+                            state = remember { TooltipState(initialIsVisible = showTooltip) },
+                            enableUserInput = false
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(200.dp)
+                                    .pointerInput(Unit) {
+                                        detectTwoFingerDoubleTap {
                                             onVaultTrigger()
                                         }
-                                    },
-                                    onLongClick = {
-                                        onVaultTrigger()
                                     }
-                                )
-                        ) {
+                            ) {
                             val progress = if (stats.totalSpace > 0) {
                                 stats.usedSpace.toFloat() / stats.totalSpace.toFloat()
                             } else 0f
@@ -206,7 +209,32 @@ fun CleanerDashboard(
                                 )
                             }
 
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val centerScale by animateFloatAsState(
+                                targetValue = if (vaultTapCount > 0) 1.05f else 1f,
+                                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy),
+                                label = "CenterScale"
+                            )
+
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                modifier = Modifier
+                                    .wrapContentSize()
+                                    .graphicsLayer(scaleX = centerScale, scaleY = centerScale)
+                                    .clickable(
+                                        indication = null,
+                                        interactionSource = remember { MutableInteractionSource() }
+                                    ) {
+                                        if (showTooltip) {
+                                            showTooltip = false
+                                            prefs.edit().putBoolean("vault_tooltip_shown", true).apply()
+                                        }
+                                        vaultTapCount++
+                                        if (vaultTapCount == 7) {
+                                            vaultTapCount = 0
+                                            onVaultTrigger()
+                                        }
+                                    }
+                            ) {
                                 val percentage = (animatedProgress * 100).toInt()
                                 Text(
                                     text = if (isCleaning) "Cleaning..." else "$percentage%",
@@ -219,6 +247,7 @@ fun CleanerDashboard(
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
+                                }
                             }
                         }
 
@@ -283,6 +312,29 @@ fun InfoCard(
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
+        }
+    }
+}
+
+suspend fun PointerInputScope.detectTwoFingerDoubleTap(onDoubleTap: () -> Unit) {
+    awaitPointerEventScope {
+        var tapCount = 0
+        var lastTapTime = 0L
+        while (true) {
+            val event = awaitPointerEvent(PointerEventPass.Main)
+            if (event.changes.size == 2 && event.changes.all { it.changedToDown() }) {
+                val currentTime = System.currentTimeMillis()
+                if (currentTime - lastTapTime < 500) {
+                    tapCount++
+                } else {
+                    tapCount = 1
+                }
+                lastTapTime = currentTime
+                if (tapCount == 2) {
+                    onDoubleTap()
+                    tapCount = 0
+                }
+            }
         }
     }
 }

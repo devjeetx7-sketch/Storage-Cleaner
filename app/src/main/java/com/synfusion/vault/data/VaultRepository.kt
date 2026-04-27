@@ -53,6 +53,15 @@ class VaultRepository @Inject constructor(
         }
 
         val contentResolver = context.contentResolver
+        val mimeType = try {
+            contentResolver.getType(uri)
+        } catch (e: Exception) {
+            null
+        }
+
+        if (mimeType != null && !mimeType.startsWith("image/") && !mimeType.startsWith("video/") && !mimeType.startsWith("audio/")) {
+            return@withContext null
+        }
 
         var tempFile: File? = null
         try {

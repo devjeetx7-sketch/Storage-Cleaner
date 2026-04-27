@@ -109,12 +109,10 @@ fun MediaViewerScreen(
                                         hasError = true
                                         return@withContext
                                     }
-                                    tempFile = File(context.cacheDir, "view_${entity.id}.tmp")
-                                    if (!tempFile!!.exists()) {
-                                        encryptedFile.inputStream().use { input ->
-                                            FileOutputStream(tempFile!!).use { output ->
-                                                encryptionManager.decrypt(input, output)
-                                            }
+                                    tempFile = File(context.cacheDir, "view_${UUID.randomUUID()}.tmp")
+                                    encryptedFile.inputStream().use { input ->
+                                        FileOutputStream(tempFile!!).use { output ->
+                                            encryptionManager.decrypt(input, output)
                                         }
                                     }
                                     tempFilePath = tempFile?.absolutePath ?: ""
