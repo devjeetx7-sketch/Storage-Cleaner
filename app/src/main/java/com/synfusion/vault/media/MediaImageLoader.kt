@@ -13,6 +13,7 @@ import coil.request.ImageRequest
 import coil.request.Options
 import com.synfusion.vault.data.VaultEntity
 import com.synfusion.vault.security.EncryptionManager
+import com.synfusion.vault.debug.ErrorLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,61 +31,70 @@ import android.graphics.drawable.BitmapDrawable
 
 @Singleton
 class EncryptedMediaFetcherFactory @Inject constructor(
-    private val encryptionManager: EncryptionManager
+    private val encryptionManager: EncryptionManager,
+    private val errorLogger: ErrorLogger
 ) : Fetcher.Factory<VaultEntity> {
 
     override fun create(data: VaultEntity, options: Options, imageLoader: ImageLoader): Fetcher {
-        return EncryptedMediaFetcher(data, options, encryptionManager)
+        return EncryptedMediaFetcher(data, options, encryptionManager, errorLogger)
     }
 }
 
 class EncryptedMediaFetcher(
     private val entity: VaultEntity,
     private val options: Options,
-    private val encryptionManager: EncryptionManager
+    private val encryptionManager: EncryptionManager,
+    private val errorLogger: ErrorLogger
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult? {
         val file = File(entity.encryptedPath)
-        if (!file.exists()) return null
+        if (!file.exists()) {
+            errorLogger.logError(ErrorLogger.Codes.FILE_MISSING, "File missing during fetch", null, entity.mediaType, "fetch_image")
+            return null
+        }
 
-        return withContext(Dispatchers.IO) {
-            val bitmap = if (entity.mediaType == "videos") {
-                // To avoid OOM, stream directly to a temp file
-                val tempFile = File.createTempFile("temp_vid_thumb", ".mp4", options.context.cacheDir)
-                file.inputStream().use { input ->
-                    FileOutputStream(tempFile).use { output ->
-                        encryptionManager.decrypt(input, output)
+        return try {
+            withContext(Dispatchers.IO) {
+                val bitmap = if (entity.mediaType == "videos") {
+                    val tempFile = File.createTempFile("temp_vid_thumb", ".mp4", options.context.cacheDir)
+                    file.inputStream().use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            encryptionManager.decrypt(input, output)
+                        }
                     }
+
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(tempFile.absolutePath)
+                        retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    } catch (e: Exception) {
+                        errorLogger.logError(ErrorLogger.Codes.PLAY_VID, "Failed to extract thumbnail", e, "videos", "fetch_thumb")
+                        null
+                    } finally {
+                        retriever.release()
+                        tempFile.delete()
+                    }
+                } else {
+                    val outputStream = ByteArrayOutputStream()
+                    file.inputStream().use { input ->
+                        encryptionManager.decrypt(input, outputStream)
+                    }
+                    val decryptedBytes = outputStream.toByteArray()
+                    BitmapFactory.decodeByteArray(decryptedBytes, 0, decryptedBytes.size)
                 }
 
-                val retriever = MediaMetadataRetriever()
-                try {
-                    retriever.setDataSource(tempFile.absolutePath)
-                    retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                } catch (e: Exception) {
-                    null
-                } finally {
-                    retriever.release()
-                    tempFile.delete()
-                }
-            } else {
-                // For images, we read directly to byte array (assuming images are not 1GB+)
-                val outputStream = ByteArrayOutputStream()
-                file.inputStream().use { input ->
-                    encryptionManager.decrypt(input, outputStream)
-                }
-                val decryptedBytes = outputStream.toByteArray()
-                BitmapFactory.decodeByteArray(decryptedBytes, 0, decryptedBytes.size)
+                if (bitmap != null) {
+                    DrawableResult(
+                        drawable = BitmapDrawable(options.context.resources, bitmap),
+                        isSampled = false,
+                        dataSource = DataSource.DISK
+                    )
+                } else null
             }
-
-            if (bitmap != null) {
-                DrawableResult(
-                    drawable = BitmapDrawable(options.context.resources, bitmap),
-                    isSampled = false,
-                    dataSource = DataSource.DISK
-                )
-            } else null
+        } catch (e: Exception) {
+            errorLogger.logError(ErrorLogger.Codes.IMPORT_IMG, "Failed to decode media", e, entity.mediaType, "fetch")
+            null
         }
     }
 }

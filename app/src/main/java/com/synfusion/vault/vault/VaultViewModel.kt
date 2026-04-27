@@ -80,7 +80,8 @@ class VaultViewModel @Inject constructor(
         }
     }
 
-    private fun getMediaStoreUriFromSaf(uri: Uri, type: String): Uri? {
+    private fun getMediaStoreUriFromSaf(uri: Uri?, type: String): Uri? {
+        if (uri == null) return null
         try {
             if (DocumentsContract.isDocumentUri(context, uri)) {
                 val docId = DocumentsContract.getDocumentId(uri)
@@ -130,13 +131,13 @@ class VaultViewModel @Inject constructor(
 
             uris.forEach { uri ->
                 val originalUri = vaultRepository.importAndEncryptFile(uri, mediaType)
-                // Convert picker/SAF uri to MediaStore URI for createDeleteRequest
-                val msUri = getMediaStoreUriFromSaf(originalUri, mediaType)
-                if (msUri != null) {
-                    mediaStoreUris.add(msUri)
-                } else {
-                    // Fallback to original uri if conversion fails (might be deleted via contentResolver fallback)
-                    mediaStoreUris.add(originalUri)
+                if (originalUri != null) {
+                    val msUri = getMediaStoreUriFromSaf(originalUri, mediaType)
+                    if (msUri != null) {
+                        mediaStoreUris.add(msUri)
+                    } else {
+                        mediaStoreUris.add(originalUri)
+                    }
                 }
             }
 
@@ -151,7 +152,9 @@ class VaultViewModel @Inject constructor(
             val paths = mutableListOf<String>()
             _selectedItems.value.forEach { item ->
                 val path = vaultRepository.decryptAndExportFile(item)
-                paths.add(path)
+                if (path != null) {
+                    paths.add(path)
+                }
             }
             clearSelection()
             _isProcessing.value = false
