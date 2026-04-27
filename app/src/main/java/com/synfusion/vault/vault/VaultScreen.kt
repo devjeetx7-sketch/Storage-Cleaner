@@ -218,20 +218,22 @@ fun VaultScreen(
                         selected = selectedMediaType == "images",
                         onClick = { viewModel.setMediaType("images") },
                         icon = { Icon(Icons.Default.Image, "Images") },
-                        label = { Text("Images") }
+                        label = { Text("Images") },
+                        modifier = Modifier.weight(1f)
                     )
                     NavigationBarItem(
                         selected = selectedMediaType == "videos",
                         onClick = { viewModel.setMediaType("videos") },
                         icon = { Icon(Icons.Default.VideoLibrary, "Videos") },
-                        label = { Text("Videos") }
+                        label = { Text("Videos") },
+                        modifier = Modifier.weight(1f)
                     )
-                    Spacer(Modifier.width(64.dp))
                     NavigationBarItem(
                         selected = selectedMediaType == "audio",
                         onClick = { viewModel.setMediaType("audio") },
                         icon = { Icon(Icons.Default.AudioFile, "Audio") },
-                        label = { Text("Audio") }
+                        label = { Text("Audio") },
+                        modifier = Modifier.weight(1f)
                     )
                 }
             }
