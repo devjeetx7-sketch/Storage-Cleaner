@@ -51,36 +51,81 @@ class EncryptedMediaFetcher(
 
         return try {
             withContext(Dispatchers.IO) {
+                val cachedThumb = File(options.context.cacheDir, "thumb_cache_${entity.id}.jpg")
+                if (cachedThumb.exists()) {
+                    val bitmap = BitmapFactory.decodeFile(cachedThumb.absolutePath)
+                    if (bitmap != null) {
+                        return@withContext DrawableResult(
+                            drawable = BitmapDrawable(options.context.resources, bitmap),
+                            isSampled = false,
+                            dataSource = DataSource.DISK
+                        )
+                    }
+                }
+
                 var tempFile: File? = null
                 try {
                     val bitmap = if (entity.mediaType == "videos") {
-                        tempFile = File.createTempFile("temp_vid_thumb", ".mp4", options.context.cacheDir)
+                        val tFile = File(options.context.cacheDir, "dec_${entity.id}.tmp")
+                        tempFile = tFile
                         file.inputStream().use { input ->
-                            FileOutputStream(tempFile!!).use { output ->
+                            FileOutputStream(tFile).use { output ->
                                 encryptionManager.decrypt(input, output)
                             }
                         }
 
                         val retriever = MediaMetadataRetriever()
                         try {
-                            retriever.setDataSource(tempFile!!.absolutePath)
-                            retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                            retriever.setDataSource(tFile.absolutePath)
+                            retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                         } catch (e: Exception) {
                             null
                         } finally {
                             retriever.release()
                         }
                     } else {
-                        tempFile = File.createTempFile("temp_img", ".jpg", options.context.cacheDir)
+                        val tFile = File(options.context.cacheDir, "dec_${entity.id}.tmp")
+                        tempFile = tFile
                         file.inputStream().use { input ->
-                            FileOutputStream(tempFile!!).use { output ->
+                            FileOutputStream(tFile).use { output ->
                                 encryptionManager.decrypt(input, output)
                             }
                         }
-                        BitmapFactory.decodeFile(tempFile!!.absolutePath)
+                        val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFile(tFile.absolutePath, boundsOptions)
+
+                        val outWidth = boundsOptions.outWidth
+                        val outHeight = boundsOptions.outHeight
+                        var inSampleSize = 1
+                        val targetWidth = 300
+                        val targetHeight = 300
+
+                        if (outHeight > targetHeight || outWidth > targetWidth) {
+                            val halfHeight: Int = outHeight / 2
+                            val halfWidth: Int = outWidth / 2
+                            while (halfHeight / inSampleSize >= targetHeight && halfWidth / inSampleSize >= targetWidth) {
+                                inSampleSize *= 2
+                            }
+                        }
+
+                        val decodeOptions = BitmapFactory.Options().apply {
+                            this.inSampleSize = inSampleSize
+                        }
+                        BitmapFactory.decodeFile(tFile.absolutePath, decodeOptions)
                     }
 
                     if (bitmap != null) {
+                        // Cache the thumbnail
+                        if (!cachedThumb.exists()) {
+                            try {
+                                FileOutputStream(cachedThumb).use { out ->
+                                    bitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+
                         DrawableResult(
                             drawable = BitmapDrawable(options.context.resources, bitmap),
                             isSampled = false,

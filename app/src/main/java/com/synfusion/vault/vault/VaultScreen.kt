@@ -54,6 +54,7 @@ fun VaultScreen(
     val selectedMediaType by viewModel.selectedMediaType.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isProcessing by viewModel.isProcessing.collectAsState()
+    val error by viewModel.error.collectAsState()
 
     var isSearchActive by remember { mutableStateOf(false) }
 
@@ -343,6 +344,19 @@ fun VaultScreen(
                     }
                 ) {
                     Text(permissionDeniedMessage!!)
+                }
+            }
+
+            if (error != null) {
+                Snackbar(
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+                    action = {
+                        TextButton(onClick = { viewModel.clearError() }) {
+                            Text("OK")
+                        }
+                    }
+                ) {
+                    Text(error!!)
                 }
             }
         }

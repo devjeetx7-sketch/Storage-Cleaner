@@ -42,27 +42,21 @@ class VaultRepository @Inject constructor(
         }
 
         try {
-            context.contentResolver.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION
-            )
+            if (uri.scheme == "content") {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
         } catch (e: SecurityException) {
+            // Ignore if provider doesn't support persistable permissions
         }
 
         val contentResolver = context.contentResolver
-        val mimeType = try {
-            contentResolver.getType(uri)
-        } catch (e: Exception) {
-            null
-        }
-
-        if (mimeType == null || (!mimeType.startsWith("image/") && !mimeType.startsWith("video/") && !mimeType.startsWith("audio/"))) {
-            return@withContext null
-        }
 
         var tempFile: File? = null
         try {
-            val originalName = getFileName(uri) ?: UUID.randomUUID().toString()
+            val originalName = getFileName(uri) ?: "file_${System.currentTimeMillis()}"
             val originalPath = uri.toString()
             val id = UUID.randomUUID().toString()
             val encryptedFileName = "$id.enc"
@@ -100,6 +94,7 @@ class VaultRepository @Inject constructor(
             vaultDao.insertItem(entity)
             return@withContext uri
         } catch (e: Exception) {
+            e.printStackTrace()
             return@withContext null
         } finally {
             try {
@@ -181,13 +176,16 @@ class VaultRepository @Inject constructor(
                 context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                     if (cursor.moveToFirst()) {
                         val index = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                        if (index != -1) {
+                        if (index != -1 && !cursor.isNull(index)) {
                             return cursor.getString(index)
                         }
                     }
                 }
             } catch (e: Exception) {
+                e.printStackTrace()
             }
+        } else if (uri.scheme == "file") {
+            return uri.lastPathSegment
         }
         return null
     }

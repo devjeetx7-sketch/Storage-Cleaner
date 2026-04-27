@@ -33,6 +33,9 @@ class VaultViewModel @Inject constructor(
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing = _isProcessing.asStateFlow()
 
+    private val _error = MutableStateFlow<String?>(null)
+    val error = _error.asStateFlow()
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val vaultItems: StateFlow<List<VaultEntity>> = combine(_selectedMediaType, _searchQuery) { type, query ->
         Pair(type, query)
@@ -81,6 +84,10 @@ class VaultViewModel @Inject constructor(
         }
     }
 
+    fun clearError() {
+        _error.value = null
+    }
+
     private fun getMediaStoreUriFromSaf(uri: Uri?, type: String): Uri? {
         if (uri == null) return null
         try {
@@ -127,22 +134,24 @@ class VaultViewModel @Inject constructor(
         viewModelScope.launch {
             _isProcessing.value = true
             val mediaStoreUris = mutableListOf<Uri>()
+            var failCount = 0
 
             supervisorScope {
                 val jobs = uris.map { uri ->
                     async {
                         val originalUri = vaultRepository.importAndEncryptFile(uri, mediaType)
                         if (originalUri != null) {
-                            val msUri = getMediaStoreUriFromSaf(originalUri, mediaType)
-                            if (msUri != null) {
-                                mediaStoreUris.add(msUri)
-                            } else {
-                                mediaStoreUris.add(originalUri)
-                            }
+                            mediaStoreUris.add(getMediaStoreUriFromSaf(originalUri, mediaType) ?: originalUri)
+                        } else {
+                            failCount++
                         }
                     }
                 }
                 jobs.awaitAll()
+            }
+
+            if (failCount > 0) {
+                _error.value = "Failed to import $failCount file(s)."
             }
 
             _isProcessing.value = false
