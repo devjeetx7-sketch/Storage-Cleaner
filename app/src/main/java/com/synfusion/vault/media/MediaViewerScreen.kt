@@ -74,15 +74,20 @@ fun MediaViewerScreen(
                     var tempFilePath by remember { mutableStateOf("") }
 
                     LaunchedEffect(entity) {
-                        withContext(Dispatchers.IO) {
-                            val encryptedFile = File(entity.encryptedPath)
-                            val tempFile = File(context.cacheDir, "${UUID.randomUUID()}.tmp")
-                            encryptedFile.inputStream().use { input ->
-                                FileOutputStream(tempFile).use { output ->
-                                    encryptionManager.decrypt(input, output)
+                        var tempFile: File? = null
+                        try {
+                            withContext(Dispatchers.IO) {
+                                val encryptedFile = File(entity.encryptedPath)
+                                tempFile = File(context.cacheDir, "${UUID.randomUUID()}.tmp")
+                                encryptedFile.inputStream().use { input ->
+                                    FileOutputStream(tempFile).use { output ->
+                                        encryptionManager.decrypt(input, output)
+                                    }
                                 }
+                                tempFilePath = tempFile?.absolutePath ?: ""
                             }
-                            tempFilePath = tempFile.absolutePath
+                        } catch (e: Exception) {
+                            tempFile?.delete()
                         }
                     }
 

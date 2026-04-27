@@ -22,7 +22,9 @@ object AppModule {
             context,
             VaultDatabase::class.java,
             "vault_database"
-        ).build()
+        )
+        .fallbackToDestructiveMigration()
+        .build()
     }
 
     @Provides

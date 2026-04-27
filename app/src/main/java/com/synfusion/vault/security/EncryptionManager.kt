@@ -2,6 +2,8 @@ package com.synfusion.vault.security
 
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
 import java.security.KeyStore
@@ -23,6 +25,7 @@ class EncryptionManager @Inject constructor() {
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val IV_SIZE = 12
         private const val TAG_SIZE = 128
+        private const val BUFFER_SIZE = 8192 // 8KB buffer for streaming large files
     }
 
     private val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -52,27 +55,36 @@ class EncryptionManager @Inject constructor() {
         return (keyStore.getEntry(KEY_ALIAS, null) as KeyStore.SecretKeyEntry).secretKey
     }
 
-    fun encrypt(inputStream: InputStream, outputStream: OutputStream) {
+    suspend fun encrypt(inputStream: InputStream, outputStream: OutputStream) = withContext(Dispatchers.IO) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getKey())
         val iv = cipher.iv
         outputStream.write(iv)
 
         CipherOutputStream(outputStream, cipher).use { cipherOut ->
-            inputStream.copyTo(cipherOut)
+            val buffer = ByteArray(BUFFER_SIZE)
+            var bytesRead: Int
+            while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                cipherOut.write(buffer, 0, bytesRead)
+            }
         }
     }
 
-    fun decrypt(inputStream: InputStream, outputStream: OutputStream) {
+    suspend fun decrypt(inputStream: InputStream, outputStream: OutputStream) = withContext(Dispatchers.IO) {
         val iv = ByteArray(IV_SIZE)
-        inputStream.read(iv)
+        val read = inputStream.read(iv)
+        if (read != IV_SIZE) return@withContext
 
         val cipher = Cipher.getInstance(TRANSFORMATION)
         val spec = GCMParameterSpec(TAG_SIZE, iv)
         cipher.init(Cipher.DECRYPT_MODE, getKey(), spec)
 
         CipherInputStream(inputStream, cipher).use { cipherIn ->
-            cipherIn.copyTo(outputStream)
+            val buffer = ByteArray(BUFFER_SIZE)
+            var bytesRead: Int
+            while (cipherIn.read(buffer).also { bytesRead = it } != -1) {
+                outputStream.write(buffer, 0, bytesRead)
+            }
         }
     }
 }
