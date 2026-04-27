@@ -24,13 +24,19 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -56,7 +62,6 @@ fun VaultScreen(
     val isProcessing by viewModel.isProcessing.collectAsState()
     val error by viewModel.error.collectAsState()
 
-    var isSearchActive by remember { mutableStateOf(false) }
 
     // FLAG_SECURE
     DisposableEffect(Unit) {
@@ -181,156 +186,168 @@ fun VaultScreen(
     }
 
     Scaffold(
-        topBar = {
-            if (selectedItems.isNotEmpty()) {
-                TopAppBar(
-                    title = { Text("${selectedItems.size} selected") },
-                    navigationIcon = {
-                        IconButton(onClick = { viewModel.clearSelection() }) {
-                            Icon(Icons.Default.Close, "Clear")
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = {
-                            viewModel.exportSelectedItems { _ ->
-                                // Optional UI feedback
-                            }
-                        }, enabled = !isProcessing) {
-                            Icon(Icons.Default.Upload, "Export/Unhide")
-                        }
-                        IconButton(onClick = { viewModel.deleteSelectedItems() }, enabled = !isProcessing) {
-                            Icon(Icons.Default.Delete, "Delete")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer,
-                        titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        navigationIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                        actionIconContentColor = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                )
-            } else if (isSearchActive) {
-                TopAppBar(
-                    title = {
-                        TextField(
-                            value = searchQuery,
-                            onValueChange = { viewModel.setSearchQuery(it) },
-                            placeholder = { Text("Search vault...") },
-                            singleLine = true,
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            )
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(onClick = {
-                            isSearchActive = false
-                            viewModel.setSearchQuery("")
-                        }) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                        titleContentColor = MaterialTheme.colorScheme.onBackground
-                    )
-                )
-            } else {
-                TopAppBar(
-                    title = { Text("Hidden Vault", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold) },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                        }
-                    },
-                    actions = {
-                        IconButton(onClick = { isSearchActive = true }) {
-                            Icon(Icons.Default.Search, "Search")
-                        }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                        titleContentColor = MaterialTheme.colorScheme.onBackground
-                    )
-                )
-            }
-        },
-        bottomBar = {
-            NavigationBar(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ) {
-                NavigationBarItem(
-                    selected = selectedMediaType == "images",
-                    onClick = { viewModel.setMediaType("images") },
-                    icon = { Icon(Icons.Default.Image, "Images") },
-                    label = { Text("Images") }
-                )
-                NavigationBarItem(
-                    selected = selectedMediaType == "videos",
-                    onClick = { viewModel.setMediaType("videos") },
-                    icon = { Icon(Icons.Default.VideoLibrary, "Videos") },
-                    label = { Text("Videos") }
-                )
-                NavigationBarItem(
-                    selected = selectedMediaType == "audio",
-                    onClick = { viewModel.setMediaType("audio") },
-                    icon = { Icon(Icons.Default.AudioFile, "Audio") },
-                    label = { Text("Audio") }
-                )
-            }
-        },
         floatingActionButton = {
-            FloatingActionButton(
+            LargeFloatingActionButton(
                 onClick = { requestPermissionsAndLaunch() },
-                containerColor = MaterialTheme.colorScheme.primaryContainer,
-                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                shape = CircleShape,
+                modifier = Modifier.padding(bottom = 80.dp)
             ) {
-                Icon(Icons.Default.Add, "Import")
+                Icon(Icons.Default.Add, "Import", modifier = Modifier.size(36.dp))
+            }
+        },
+        floatingActionButtonPosition = FabPosition.Center,
+        bottomBar = {
+            Surface(
+                modifier = Modifier
+                    .padding(horizontal = 16.dp, vertical = 16.dp)
+                    .fillMaxWidth()
+                    .height(80.dp),
+                shape = RoundedCornerShape(40.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f),
+                tonalElevation = 8.dp,
+                shadowElevation = 8.dp
+            ) {
+                NavigationBar(
+                    containerColor = Color.Transparent,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                    tonalElevation = 0.dp
+                ) {
+                    NavigationBarItem(
+                        selected = selectedMediaType == "images",
+                        onClick = { viewModel.setMediaType("images") },
+                        icon = { Icon(Icons.Default.Image, "Images") },
+                        label = { Text("Images") }
+                    )
+                    NavigationBarItem(
+                        selected = selectedMediaType == "videos",
+                        onClick = { viewModel.setMediaType("videos") },
+                        icon = { Icon(Icons.Default.VideoLibrary, "Videos") },
+                        label = { Text("Videos") }
+                    )
+                    Spacer(Modifier.width(64.dp))
+                    NavigationBarItem(
+                        selected = selectedMediaType == "audio",
+                        onClick = { viewModel.setMediaType("audio") },
+                        icon = { Icon(Icons.Default.AudioFile, "Audio") },
+                        label = { Text("Audio") }
+                    )
+                }
             }
         }
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-            if (items.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("Vault is empty")
-                }
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(if (selectedMediaType == "audio") 1 else 3),
-                    contentPadding = PaddingValues(4.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(items, key = { it.id }) { item ->
-                        VaultItem(
-                            item = item,
-                            isSelected = selectedItems.contains(item),
-                            onSelect = { viewModel.toggleSelection(item) },
-                            onClick = {
-                                if (selectedItems.isNotEmpty()) {
-                                    viewModel.toggleSelection(item)
-                                } else {
-                                    onOpenMedia(item)
-                                }
+        Box(modifier = Modifier.fillMaxSize().padding(padding).statusBarsPadding()) {
+            Column {
+                if (selectedItems.isNotEmpty()) {
+                    Surface(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        tonalElevation = 4.dp
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = { viewModel.clearSelection() }) {
+                                Icon(Icons.Default.Close, "Clear")
                             }
-                        )
+                            Text(
+                                "${selectedItems.size} selected",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            IconButton(onClick = {
+                                viewModel.exportSelectedItems { _ -> }
+                            }, enabled = !isProcessing) {
+                                Icon(Icons.Default.Upload, "Export")
+                            }
+                            IconButton(onClick = { viewModel.deleteSelectedItems() }, enabled = !isProcessing) {
+                                Icon(Icons.Default.Delete, "Delete")
+                            }
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
+                        }
+
+                        Surface(
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = RoundedCornerShape(28.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            tonalElevation = 2.dp
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp).fillMaxSize(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.width(12.dp))
+                                TextField(
+                                    value = searchQuery,
+                                    onValueChange = { viewModel.setSearchQuery(it) },
+                                    placeholder = { Text("Search vault...") },
+                                    singleLine = true,
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent
+                                    ),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Box(modifier = Modifier.weight(1f)) {
+                    if (items.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("Vault is empty")
+                        }
+                    } else {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(if (selectedMediaType == "audio") 1 else 3),
+                            contentPadding = PaddingValues(bottom = 120.dp, start = 8.dp, end = 8.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(items, key = { it.id }) { item ->
+                                VaultItem(
+                                    item = item,
+                                    isSelected = selectedItems.contains(item),
+                                    onSelect = { viewModel.toggleSelection(item) },
+                                    onClick = {
+                                        if (selectedItems.isNotEmpty()) {
+                                            viewModel.toggleSelection(item)
+                                        } else {
+                                            onOpenMedia(item)
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
+
             if (isProcessing) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.5f)),
+                        .background(Color.Black.copy(alpha = 0.3f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator()
+                    PremiumCurvyLoader()
                 }
             }
 
@@ -363,6 +380,41 @@ fun VaultScreen(
     }
 }
 
+@Composable
+fun PremiumCurvyLoader() {
+    val infiniteTransition = rememberInfiniteTransition(label = "CurvyLoader")
+    val angle by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = LinearEasing)
+        ),
+        label = "Angle"
+    )
+
+    val color1 = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f)
+    val color2 = MaterialTheme.colorScheme.primary
+
+    Canvas(modifier = Modifier.size(64.dp)) {
+        drawArc(
+            brush = Brush.sweepGradient(
+                colors = listOf(
+                    Color.Transparent,
+                    color1,
+                    color2
+                )
+            ),
+            startAngle = angle,
+            sweepAngle = 280f,
+            useCenter = false,
+            style = androidx.compose.ui.graphics.drawscope.Stroke(
+                width = 8.dp.toPx(),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round
+            )
+        )
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun VaultItem(
@@ -373,13 +425,14 @@ fun VaultItem(
 ) {
     ElevatedCard(
         modifier = Modifier
-            .padding(4.dp)
+            .padding(8.dp)
             .aspectRatio(if (item.mediaType == "audio") 4f else 1f)
             .combinedClickable(
                 onClick = onClick,
                 onLongClick = onSelect
             ),
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(24.dp),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
         colors = CardDefaults.elevatedCardColors(
             containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh
         )

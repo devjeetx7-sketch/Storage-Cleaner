@@ -1,10 +1,18 @@
 package com.synfusion.vault.ui.cleaner
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.*
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,6 +33,7 @@ import androidx.compose.material.icons.filled.CleaningServices
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.FolderSpecial
 import androidx.compose.material.icons.filled.Memory
+import androidx.compose.material.icons.filled.RocketLaunch
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -215,39 +224,81 @@ fun CleanerDashboard(
                                 label = "CenterScale"
                             )
 
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                modifier = Modifier
-                                    .wrapContentSize()
-                                    .graphicsLayer(scaleX = centerScale, scaleY = centerScale)
-                                    .clickable(
-                                        indication = null,
-                                        interactionSource = remember { MutableInteractionSource() }
-                                    ) {
-                                        if (showTooltip) {
-                                            showTooltip = false
-                                            prefs.edit().putBoolean("vault_tooltip_shown", true).apply()
-                                        }
-                                        vaultTapCount++
-                                        if (vaultTapCount == 7) {
-                                            vaultTapCount = 0
-                                            onVaultTrigger()
-                                        }
+                            AnimatedContent(
+                                targetState = isCleaning,
+                                transitionSpec = {
+                                    (fadeIn() + scaleIn()).togetherWith(fadeOut() + scaleOut())
+                                },
+                                label = "CleaningAnimation"
+                            ) { cleaning ->
+                                if (cleaning) {
+                                    val rocketTranslationY by animateFloatAsState(
+                                        targetValue = -100f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(1000, easing = FastOutSlowInEasing),
+                                            repeatMode = RepeatMode.Reverse
+                                        ),
+                                        label = "RocketTranslation"
+                                    )
+                                    val rocketScale by animateFloatAsState(
+                                        targetValue = 1.2f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(1000, easing = FastOutSlowInEasing),
+                                            repeatMode = RepeatMode.Reverse
+                                        ),
+                                        label = "RocketScale"
+                                    )
+
+                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
+                                        Icon(
+                                            imageVector = Icons.Default.RocketLaunch,
+                                            contentDescription = null,
+                                            modifier = Modifier
+                                                .size(64.dp)
+                                                .graphicsLayer {
+                                                    translationY = rocketTranslationY
+                                                    scaleX = rocketScale
+                                                    scaleY = rocketScale
+                                                },
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
                                     }
-                            ) {
-                                val percentage = (animatedProgress * 100).toInt()
-                                Text(
-                                    text = if (isCleaning) "Cleaning..." else "$percentage%",
-                                    style = MaterialTheme.typography.displayMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                                Text(
-                                    text = "${formatSize(stats.usedSpace)} / ${formatSize(stats.totalSpace)}",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                                } else {
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        modifier = Modifier
+                                            .wrapContentSize()
+                                            .graphicsLayer(scaleX = centerScale, scaleY = centerScale)
+                                            .clickable(
+                                                indication = null,
+                                                interactionSource = remember { MutableInteractionSource() }
+                                            ) {
+                                                if (showTooltip) {
+                                                    showTooltip = false
+                                                    prefs.edit().putBoolean("vault_tooltip_shown", true).apply()
+                                                }
+                                                vaultTapCount++
+                                                if (vaultTapCount == 7) {
+                                                    vaultTapCount = 0
+                                                    onVaultTrigger()
+                                                }
+                                            }
+                                    ) {
+                                        val percentage = (animatedProgress * 100).toInt()
+                                        Text(
+                                            text = "$percentage%",
+                                            style = MaterialTheme.typography.displayMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                        Text(
+                                            text = "${formatSize(stats.usedSpace)} / ${formatSize(stats.totalSpace)}",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
                                 }
+                            }
                             }
                         }
 

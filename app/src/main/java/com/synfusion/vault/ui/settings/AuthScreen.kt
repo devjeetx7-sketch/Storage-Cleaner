@@ -10,10 +10,14 @@ import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -48,20 +52,11 @@ fun AuthScreen(
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text(if (isFirstTime) "Setup Vault" else "Unlock Vault") },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.onBackground
-                )
-            )
-        }
-    ) { padding ->
+    Scaffold { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
+                .statusBarsPadding()
                 .padding(padding)
                 .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
@@ -191,13 +186,20 @@ fun PinDots(pin: String) {
     ) {
         for (i in 1..4) {
             val isFilled = i <= pin.length
+            val scale by animateFloatAsState(targetValue = if (isFilled) 1.2f else 1f, label = "DotScale")
+            val color by animateColorAsState(
+                targetValue = if (isFilled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                label = "DotColor"
+            )
+
             Box(
                 modifier = Modifier
                     .size(16.dp)
+                    .graphicsLayer(scaleX = scale, scaleY = scale)
                     .clip(CircleShape)
-                    .background(
-                        if (isFilled) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.surfaceVariant
+                    .background(color)
+                    .then(
+                        if (isFilled) Modifier.shadow(4.dp, CircleShape) else Modifier
                     )
             )
         }
