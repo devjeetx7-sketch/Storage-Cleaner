@@ -13,7 +13,6 @@ import coil.request.ImageRequest
 import coil.request.Options
 import com.synfusion.vault.data.VaultEntity
 import com.synfusion.vault.security.EncryptionManager
-import com.synfusion.vault.debug.ErrorLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,26 +29,23 @@ import android.graphics.drawable.BitmapDrawable
 
 @Singleton
 class EncryptedMediaFetcherFactory @Inject constructor(
-    private val encryptionManager: EncryptionManager,
-    private val errorLogger: ErrorLogger
+    private val encryptionManager: EncryptionManager
 ) : Fetcher.Factory<VaultEntity> {
 
     override fun create(data: VaultEntity, options: Options, imageLoader: ImageLoader): Fetcher {
-        return EncryptedMediaFetcher(data, options, encryptionManager, errorLogger)
+        return EncryptedMediaFetcher(data, options, encryptionManager)
     }
 }
 
 class EncryptedMediaFetcher(
     private val entity: VaultEntity,
     private val options: Options,
-    private val encryptionManager: EncryptionManager,
-    private val errorLogger: ErrorLogger
+    private val encryptionManager: EncryptionManager
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult? {
         val file = File(entity.encryptedPath)
         if (!file.exists()) {
-            errorLogger.logError(ErrorLogger.Codes.FILE_MISSING, "File missing during fetch", null, entity.mediaType, "fetch_image")
             return null
         }
 
@@ -60,30 +56,28 @@ class EncryptedMediaFetcher(
                     val bitmap = if (entity.mediaType == "videos") {
                         tempFile = File.createTempFile("temp_vid_thumb", ".mp4", options.context.cacheDir)
                         file.inputStream().use { input ->
-                            FileOutputStream(tempFile).use { output ->
+                            FileOutputStream(tempFile!!).use { output ->
                                 encryptionManager.decrypt(input, output)
                             }
                         }
 
                         val retriever = MediaMetadataRetriever()
                         try {
-                            retriever.setDataSource(tempFile.absolutePath)
+                            retriever.setDataSource(tempFile!!.absolutePath)
                             retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
                         } catch (e: Exception) {
-                            errorLogger.logError(ErrorLogger.Codes.PLAY_VID, "Failed to extract thumbnail", e, "videos", "fetch_thumb")
                             null
                         } finally {
                             retriever.release()
                         }
                     } else {
-                        // Use a temp file for images too to avoid OOM with large image byte arrays
                         tempFile = File.createTempFile("temp_img", ".jpg", options.context.cacheDir)
                         file.inputStream().use { input ->
-                            FileOutputStream(tempFile).use { output ->
+                            FileOutputStream(tempFile!!).use { output ->
                                 encryptionManager.decrypt(input, output)
                             }
                         }
-                        BitmapFactory.decodeFile(tempFile.absolutePath)
+                        BitmapFactory.decodeFile(tempFile!!.absolutePath)
                     }
 
                     if (bitmap != null) {
@@ -98,7 +92,6 @@ class EncryptedMediaFetcher(
                 }
             }
         } catch (e: Exception) {
-            errorLogger.logError(ErrorLogger.Codes.IMPORT_IMG, "Failed to decode media", e, entity.mediaType, "fetch")
             null
         }
     }

@@ -2,7 +2,6 @@ package com.synfusion.vault.vault
 
 import android.content.Context
 import android.net.Uri
-import android.os.Build
 import android.provider.MediaStore
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -15,7 +14,9 @@ import javax.inject.Inject
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.ContentUris
 import android.provider.DocumentsContract
-import android.util.Log
+import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 
 @HiltViewModel
 class VaultViewModel @Inject constructor(
@@ -99,11 +100,9 @@ class VaultViewModel @Inject constructor(
                     }
                 }
             } else if (uri.toString().contains("media/picker")) {
-                // Try query the MediaStore directly using the file path or just fallback
                 return null
             }
 
-            // Attempt to query MediaStore using file path if it's content://
             val proj = arrayOf(MediaStore.MediaColumns._ID)
             context.contentResolver.query(uri, proj, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
@@ -129,16 +128,21 @@ class VaultViewModel @Inject constructor(
             _isProcessing.value = true
             val mediaStoreUris = mutableListOf<Uri>()
 
-            uris.forEach { uri ->
-                val originalUri = vaultRepository.importAndEncryptFile(uri, mediaType)
-                if (originalUri != null) {
-                    val msUri = getMediaStoreUriFromSaf(originalUri, mediaType)
-                    if (msUri != null) {
-                        mediaStoreUris.add(msUri)
-                    } else {
-                        mediaStoreUris.add(originalUri)
+            supervisorScope {
+                val jobs = uris.map { uri ->
+                    async {
+                        val originalUri = vaultRepository.importAndEncryptFile(uri, mediaType)
+                        if (originalUri != null) {
+                            val msUri = getMediaStoreUriFromSaf(originalUri, mediaType)
+                            if (msUri != null) {
+                                mediaStoreUris.add(msUri)
+                            } else {
+                                mediaStoreUris.add(originalUri)
+                            }
+                        }
                     }
                 }
+                jobs.awaitAll()
             }
 
             _isProcessing.value = false
@@ -150,11 +154,16 @@ class VaultViewModel @Inject constructor(
          viewModelScope.launch {
             _isProcessing.value = true
             val paths = mutableListOf<String>()
-            _selectedItems.value.forEach { item ->
-                val path = vaultRepository.decryptAndExportFile(item)
-                if (path != null) {
-                    paths.add(path)
+            supervisorScope {
+                val jobs = _selectedItems.value.map { item ->
+                    async {
+                        val path = vaultRepository.decryptAndExportFile(item)
+                        if (path != null) {
+                            paths.add(path)
+                        }
+                    }
                 }
+                jobs.awaitAll()
             }
             clearSelection()
             _isProcessing.value = false

@@ -33,27 +33,18 @@ import kotlinx.coroutines.delay
 @Composable
 fun CleanerDashboard(
     viewModel: CleanerViewModel = hiltViewModel(),
-    onVaultTrigger: () -> Unit,
-    onDebugTrigger: () -> Unit
+    onVaultTrigger: () -> Unit
 ) {
     val stats by viewModel.storageStats.collectAsState()
     val isCleaning by viewModel.isCleaning.collectAsState()
     val freedSpace by viewModel.freedSpace.collectAsState()
 
     var vaultTapCount by remember { mutableIntStateOf(0) }
-    var debugTapCount by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(vaultTapCount) {
         if (vaultTapCount > 0) {
             delay(1500)
             vaultTapCount = 0
-        }
-    }
-
-    LaunchedEffect(debugTapCount) {
-        if (debugTapCount > 0) {
-            delay(2000)
-            debugTapCount = 0
         }
     }
 
@@ -67,14 +58,7 @@ fun CleanerDashboard(
                         modifier = Modifier
                             .pointerInput(Unit) {
                                 detectTapGestures(
-                                    onLongPress = { onVaultTrigger() },
-                                    onTap = {
-                                        debugTapCount++
-                                        if (debugTapCount >= 7) {
-                                            debugTapCount = 0
-                                            onDebugTrigger()
-                                        }
-                                    }
+                                    onLongPress = { onVaultTrigger() }
                                 )
                             }
                     )

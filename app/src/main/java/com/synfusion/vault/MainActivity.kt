@@ -25,9 +25,6 @@ import com.synfusion.vault.media.MediaViewerScreen
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 import com.synfusion.vault.security.EncryptionManager
-import com.synfusion.vault.debug.ErrorLogger
-import com.synfusion.vault.debug.ErrorNotifier
-import com.synfusion.vault.debug.DebugScreen
 
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
@@ -37,9 +34,6 @@ class MainActivity : FragmentActivity() {
 
     @Inject
     lateinit var encryptionManager: EncryptionManager
-
-    @Inject
-    lateinit var errorLogger: ErrorLogger
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -59,9 +53,6 @@ class MainActivity : FragmentActivity() {
                                 CleanerDashboard(
                                     onVaultTrigger = {
                                         navController.navigate("auth")
-                                    },
-                                    onDebugTrigger = {
-                                        navController.navigate("debug")
                                     }
                                 )
                             }
@@ -114,20 +105,13 @@ class MainActivity : FragmentActivity() {
                                     MediaViewerScreen(
                                         entity = item,
                                         encryptionManager = encryptionManager,
-                                        errorLogger = errorLogger,
                                         onBack = {
                                             navController.popBackStack()
                                         }
                                     )
                                 }
                             }
-                            composable("debug") {
-                                DebugScreen(onBack = { navController.popBackStack() })
-                            }
                         }
-
-                        // Global Error Notifier Overlay
-                        ErrorNotifier(errorLogger = errorLogger)
                     }
                 }
             }

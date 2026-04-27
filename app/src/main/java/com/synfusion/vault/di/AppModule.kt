@@ -3,7 +3,6 @@ package com.synfusion.vault.di
 import android.content.Context
 import androidx.room.Room
 import com.synfusion.vault.data.VaultDao
-import com.synfusion.vault.data.ErrorDao
 import com.synfusion.vault.data.VaultDatabase
 import dagger.Module
 import dagger.Provides
@@ -31,10 +30,5 @@ object AppModule {
     @Provides
     fun provideVaultDao(database: VaultDatabase): VaultDao {
         return database.vaultDao()
-    }
-
-    @Provides
-    fun provideErrorDao(database: VaultDatabase): ErrorDao {
-        return database.errorDao()
     }
 }

@@ -27,7 +27,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import coil.compose.AsyncImage
 import com.synfusion.vault.data.VaultEntity
-import com.synfusion.vault.debug.ErrorLogger
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -39,7 +38,6 @@ import java.util.UUID
 fun MediaViewerScreen(
     entity: VaultEntity,
     encryptionManager: com.synfusion.vault.security.EncryptionManager,
-    errorLogger: ErrorLogger,
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -80,7 +78,7 @@ fun MediaViewerScreen(
         ) {
             if (hasError) {
                 Text(
-                    text = "Failed to load media. Check logs.",
+                    text = "Failed to load media.",
                     color = Color.Red,
                     style = MaterialTheme.typography.bodyLarge
                 )
@@ -107,7 +105,6 @@ fun MediaViewerScreen(
                                 withContext(Dispatchers.IO) {
                                     val encryptedFile = File(entity.encryptedPath)
                                     if (!encryptedFile.exists()) {
-                                        errorLogger.logError(ErrorLogger.Codes.FILE_MISSING, "File not found", null, entity.mediaType, "view")
                                         hasError = true
                                         return@withContext
                                     }
@@ -120,7 +117,6 @@ fun MediaViewerScreen(
                                     tempFilePath = tempFile?.absolutePath ?: ""
                                 }
                             } catch (e: Exception) {
-                                errorLogger.logError(ErrorLogger.Codes.DECRYPT, "Decryption failed", e, entity.mediaType, "view")
                                 tempFile?.delete()
                                 hasError = true
                             }
@@ -133,13 +129,6 @@ fun MediaViewerScreen(
                                     setMediaItem(mediaItem)
                                     addListener(object : Player.Listener {
                                         override fun onPlayerError(error: PlaybackException) {
-                                            errorLogger.logError(
-                                                if (entity.mediaType == "videos") ErrorLogger.Codes.PLAY_VID else ErrorLogger.Codes.PLAY_AUD,
-                                                "ExoPlayer playback error",
-                                                error,
-                                                entity.mediaType,
-                                                "play"
-                                            )
                                             hasError = true
                                         }
                                     })

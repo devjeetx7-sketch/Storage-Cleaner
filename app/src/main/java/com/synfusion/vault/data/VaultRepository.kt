@@ -2,13 +2,13 @@ package com.synfusion.vault.data
 
 import android.content.ContentValues
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.provider.OpenableColumns
 import com.synfusion.vault.security.EncryptionManager
-import com.synfusion.vault.debug.ErrorLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -23,8 +23,7 @@ import javax.inject.Singleton
 class VaultRepository @Inject constructor(
     @ApplicationContext private val context: Context,
     private val vaultDao: VaultDao,
-    private val encryptionManager: EncryptionManager,
-    private val errorLogger: ErrorLogger
+    private val encryptionManager: EncryptionManager
 ) {
 
     private val vaultDir = File(context.getExternalFilesDir(null), "vault").apply {
@@ -39,15 +38,25 @@ class VaultRepository @Inject constructor(
 
     suspend fun importAndEncryptFile(uri: Uri?, mediaType: String): Uri? = withContext(Dispatchers.IO) {
         if (uri == null) {
-            errorLogger.logError(ErrorLogger.Codes.INVALID_URI, "Null URI provided", null, mediaType, "import")
             return@withContext null
         }
 
-        // Validate MimeType
+        try {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            )
+        } catch (e: SecurityException) {
+        }
+
         val contentResolver = context.contentResolver
-        val mimeType = contentResolver.getType(uri)
+        val mimeType = try {
+            contentResolver.getType(uri)
+        } catch (e: Exception) {
+            null
+        }
+
         if (mimeType == null || (!mimeType.startsWith("image/") && !mimeType.startsWith("video/") && !mimeType.startsWith("audio/"))) {
-            errorLogger.logError(ErrorLogger.Codes.INVALID_URI, "Invalid or null MIME type", null, mediaType, "import")
             return@withContext null
         }
 
@@ -64,16 +73,14 @@ class VaultRepository @Inject constructor(
 
             tempFile = File(context.cacheDir, "$id.tmp")
 
-            // Safe copy to temp file first using buffered stream
             contentResolver.openInputStream(uri)?.use { inputStream ->
                 FileOutputStream(tempFile).use { outputStream ->
-                    inputStream.copyTo(outputStream, bufferSize = 8192) // 8KB buffer
+                    inputStream.copyTo(outputStream, bufferSize = 8192)
                 }
             } ?: throw IllegalStateException("Cannot open input stream for URI: $uri")
 
             val encryptedFile = File(typeDir, encryptedFileName)
 
-            // Encrypt temp file
             tempFile.inputStream().use { inputStream ->
                 FileOutputStream(encryptedFile).use { outputStream ->
                     encryptionManager.encrypt(inputStream, outputStream)
@@ -93,20 +100,11 @@ class VaultRepository @Inject constructor(
             vaultDao.insertItem(entity)
             return@withContext uri
         } catch (e: Exception) {
-            errorLogger.logError(
-                errorCode = if (e is IllegalStateException) ErrorLogger.Codes.INVALID_URI else ErrorLogger.Codes.ENCRYPT,
-                message = "Failed to import and encrypt file",
-                exception = e,
-                mediaType = mediaType,
-                operation = "import"
-            )
             return@withContext null
         } finally {
-            // Guarantee cleanup of plaintext temp file
             try {
                 tempFile?.delete()
             } catch (e: Exception) {
-                // Ignore deletion errors
             }
         }
     }
@@ -156,19 +154,11 @@ class VaultRepository @Inject constructor(
                 context.contentResolver.update(newUri, contentValues, null, null)
             }
 
-            // Clean up vault
             vaultDao.deleteItem(item)
             encryptedFile.delete()
 
             return@withContext newUri.toString()
         } catch (e: Exception) {
-            errorLogger.logError(
-                errorCode = if (e is java.io.FileNotFoundException) ErrorLogger.Codes.FILE_MISSING else ErrorLogger.Codes.DECRYPT,
-                message = "Failed to decrypt and export file",
-                exception = e,
-                mediaType = item.mediaType,
-                operation = "export"
-            )
             return@withContext null
         }
     }
@@ -181,7 +171,7 @@ class VaultRepository @Inject constructor(
             }
             vaultDao.deleteItem(item)
         } catch (e: Exception) {
-            errorLogger.logError(ErrorLogger.Codes.UNKNOWN, "Failed to delete item", e, item.mediaType, "delete")
+            // Log ignored
         }
     }
 
@@ -197,7 +187,6 @@ class VaultRepository @Inject constructor(
                     }
                 }
             } catch (e: Exception) {
-                // Return null if cursor fails
             }
         }
         return null

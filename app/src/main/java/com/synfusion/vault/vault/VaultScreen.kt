@@ -72,8 +72,6 @@ fun VaultScreen(
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             // Deleted successfully
-        } else {
-            // Handle denial gracefully: Could notify user or mark as pending
         }
     }
 
