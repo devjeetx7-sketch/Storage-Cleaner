@@ -4,15 +4,20 @@ import android.app.Application
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
+import coil.ImageLoader
+import coil.ImageLoaderFactory
 import com.synfusion.vault.security.AuthManager
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 
 @HiltAndroidApp
-class VaultApplication : Application() {
+class VaultApplication : Application(), ImageLoaderFactory {
 
     @Inject
     lateinit var authManager: AuthManager
+
+    @Inject
+    lateinit var imageLoader: ImageLoader
 
     override fun onCreate() {
         super.onCreate()
@@ -24,4 +29,6 @@ class VaultApplication : Application() {
             }
         })
     }
+
+    override fun newImageLoader(): ImageLoader = imageLoader
 }

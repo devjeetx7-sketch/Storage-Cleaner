@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.FileOutputStream
 import javax.inject.Inject
 import javax.inject.Singleton
 import coil.decode.ImageSource
@@ -48,22 +49,32 @@ class EncryptedMediaFetcher(
         if (!file.exists()) return null
 
         return withContext(Dispatchers.IO) {
-            val outputStream = ByteArrayOutputStream()
-            file.inputStream().use { input ->
-                encryptionManager.decrypt(input, outputStream)
-            }
-            val decryptedBytes = outputStream.toByteArray()
-
             val bitmap = if (entity.mediaType == "videos") {
-                val tempFile = File.createTempFile("temp_vid", ".mp4", options.context.cacheDir)
-                tempFile.writeBytes(decryptedBytes)
+                // To avoid OOM, stream directly to a temp file
+                val tempFile = File.createTempFile("temp_vid_thumb", ".mp4", options.context.cacheDir)
+                file.inputStream().use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        encryptionManager.decrypt(input, output)
+                    }
+                }
+
                 val retriever = MediaMetadataRetriever()
-                retriever.setDataSource(tempFile.absolutePath)
-                val frame = retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                retriever.release()
-                tempFile.delete()
-                frame
+                try {
+                    retriever.setDataSource(tempFile.absolutePath)
+                    retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                } catch (e: Exception) {
+                    null
+                } finally {
+                    retriever.release()
+                    tempFile.delete()
+                }
             } else {
+                // For images, we read directly to byte array (assuming images are not 1GB+)
+                val outputStream = ByteArrayOutputStream()
+                file.inputStream().use { input ->
+                    encryptionManager.decrypt(input, outputStream)
+                }
+                val decryptedBytes = outputStream.toByteArray()
                 BitmapFactory.decodeByteArray(decryptedBytes, 0, decryptedBytes.size)
             }
 

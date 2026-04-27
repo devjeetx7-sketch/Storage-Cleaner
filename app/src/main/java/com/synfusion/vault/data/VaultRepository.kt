@@ -1,7 +1,11 @@
 package com.synfusion.vault.data
 
+import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.provider.OpenableColumns
 import com.synfusion.vault.security.EncryptionManager
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -21,7 +25,7 @@ class VaultRepository @Inject constructor(
     private val encryptionManager: EncryptionManager
 ) {
 
-    private val vaultDir = File(context.filesDir, ".core_system").apply {
+    private val vaultDir = File(context.getExternalFilesDir(null), "vault").apply {
         if (!exists()) mkdirs()
     }
 
@@ -33,6 +37,7 @@ class VaultRepository @Inject constructor(
 
     suspend fun importAndEncryptFile(uri: Uri, mediaType: String) = withContext(Dispatchers.IO) {
         val originalName = getFileName(uri) ?: "unknown_file"
+        val originalPath = uri.toString()
         val id = UUID.randomUUID().toString()
         val encryptedFileName = "$id.enc"
 
@@ -51,6 +56,7 @@ class VaultRepository @Inject constructor(
         val entity = VaultEntity(
             id = id,
             originalName = originalName,
+            originalPath = originalPath,
             encryptedPath = encryptedFile.absolutePath,
             mediaType = mediaType,
             size = encryptedFile.length(),
@@ -59,25 +65,54 @@ class VaultRepository @Inject constructor(
 
         vaultDao.insertItem(entity)
 
-        // Return original uri to allow deletion request via MediaStore
         uri
     }
 
-    suspend fun decryptAndExportFile(item: VaultEntity, destDir: File) = withContext(Dispatchers.IO) {
+    suspend fun decryptAndExportFile(item: VaultEntity): String = withContext(Dispatchers.IO) {
         val encryptedFile = File(item.encryptedPath)
-        val decryptedFile = File(destDir, item.originalName)
 
-        encryptedFile.inputStream().use { inputStream ->
-            FileOutputStream(decryptedFile).use { outputStream ->
+        val collection = when(item.mediaType) {
+            "images" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Images.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            "videos" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Video.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+            "audio" -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            else -> if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY) else MediaStore.Downloads.EXTERNAL_CONTENT_URI
+        }
+
+        val relativePath = when(item.mediaType) {
+            "images" -> Environment.DIRECTORY_PICTURES
+            "videos" -> Environment.DIRECTORY_MOVIES
+            "audio" -> Environment.DIRECTORY_MUSIC
+            else -> Environment.DIRECTORY_DOWNLOADS
+        }
+
+        val contentValues = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, item.originalName)
+            put(MediaStore.MediaColumns.SIZE, item.size)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+        }
+
+        val newUri = context.contentResolver.insert(collection, contentValues) ?: throw IllegalStateException("Failed to create MediaStore record")
+
+        context.contentResolver.openOutputStream(newUri)?.use { outputStream ->
+            encryptedFile.inputStream().use { inputStream ->
                 encryptionManager.decrypt(inputStream, outputStream)
             }
         }
 
-        // Remove from vault
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            contentValues.clear()
+            contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            context.contentResolver.update(newUri, contentValues, null, null)
+        }
+
+        // Clean up vault
         vaultDao.deleteItem(item)
         encryptedFile.delete()
 
-        decryptedFile.absolutePath
+        newUri.toString()
     }
 
     suspend fun deleteVaultItem(item: VaultEntity) = withContext(Dispatchers.IO) {

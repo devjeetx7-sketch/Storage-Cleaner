@@ -4,10 +4,8 @@ import android.app.Activity
 import android.content.ContentUris
 import android.content.Intent
 import android.database.Cursor
-import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
-import android.os.Environment
 import android.provider.DocumentsContract
 import android.provider.MediaStore
 import android.view.WindowManager
@@ -52,6 +50,7 @@ fun VaultScreen(
     val selectedItems by viewModel.selectedItems.collectAsState()
     val selectedMediaType by viewModel.selectedMediaType.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
+    val isProcessing by viewModel.isProcessing.collectAsState()
 
     var isSearchActive by remember { mutableStateOf(false) }
 
@@ -70,6 +69,8 @@ fun VaultScreen(
     ) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             // Deleted successfully
+        } else {
+            // Handle denial gracefully: Could notify user or mark as pending
         }
     }
 
@@ -77,16 +78,16 @@ fun VaultScreen(
         contract = ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            viewModel.importFiles(uris, selectedMediaType) { originalUris ->
+            viewModel.importFiles(uris, selectedMediaType) { mediaStoreUris ->
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     try {
-                        val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, originalUris)
+                        val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, mediaStoreUris)
                         deleteRequestLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
                 } else {
-                    originalUris.forEach { uri ->
+                    mediaStoreUris.forEach { uri ->
                         try {
                             context.contentResolver.delete(uri, null, null)
                         } catch (e: Exception) {
@@ -102,22 +103,8 @@ fun VaultScreen(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            viewModel.importFiles(uris, selectedMediaType) { originalUris ->
-                val mediaStoreUris = originalUris.mapNotNull { uri ->
-                    if (DocumentsContract.isDocumentUri(context, uri)) {
-                        val docId = DocumentsContract.getDocumentId(uri)
-                        val split = docId.split(":")
-                        if (split.size >= 2) {
-                            val type = split[0]
-                            val id = split[1]
-                            if (type == "audio") {
-                                ContentUris.withAppendedId(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id.toLongOrNull() ?: return@mapNotNull null)
-                            } else null
-                        } else null
-                    } else uri
-                }
-
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mediaStoreUris.isNotEmpty()) {
+            viewModel.importFiles(uris, selectedMediaType) { mediaStoreUris ->
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     try {
                         val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, mediaStoreUris)
                         deleteRequestLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
@@ -125,7 +112,7 @@ fun VaultScreen(
                         e.printStackTrace()
                     }
                 } else {
-                    originalUris.forEach { uri ->
+                    mediaStoreUris.forEach { uri ->
                         try {
                             context.contentResolver.delete(uri, null, null)
                         } catch (e: Exception) {
@@ -149,14 +136,13 @@ fun VaultScreen(
                     },
                     actions = {
                         IconButton(onClick = {
-                            val publicDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-                            viewModel.exportSelectedItems(publicDir) { exportedPaths ->
-                                MediaScannerConnection.scanFile(context, exportedPaths.toTypedArray(), null, null)
+                            viewModel.exportSelectedItems { exportedPaths ->
+                                // Optional UI feedback
                             }
-                        }) {
+                        }, enabled = !isProcessing) {
                             Icon(Icons.Default.Upload, "Export/Unhide")
                         }
-                        IconButton(onClick = { viewModel.deleteSelectedItems() }) {
+                        IconButton(onClick = { viewModel.deleteSelectedItems() }, enabled = !isProcessing) {
                             Icon(Icons.Default.Delete, "Delete")
                         }
                     },
@@ -244,32 +230,44 @@ fun VaultScreen(
             }
         }
     ) { padding ->
-        if (items.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Vault is empty")
-            }
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(if (selectedMediaType == "audio") 1 else 3),
-                contentPadding = PaddingValues(4.dp),
-                modifier = Modifier.fillMaxSize().padding(padding)
-            ) {
-                items(items, key = { it.id }) { item ->
-                    VaultItem(
-                        item = item,
-                        isSelected = selectedItems.contains(item),
-                        onSelect = { viewModel.toggleSelection(item) },
-                        onClick = {
-                            if (selectedItems.isNotEmpty()) {
-                                viewModel.toggleSelection(item)
-                            } else {
-                                onOpenMedia(item)
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            if (items.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("Vault is empty")
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(if (selectedMediaType == "audio") 1 else 3),
+                    contentPadding = PaddingValues(4.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(items, key = { it.id }) { item ->
+                        VaultItem(
+                            item = item,
+                            isSelected = selectedItems.contains(item),
+                            onSelect = { viewModel.toggleSelection(item) },
+                            onClick = {
+                                if (selectedItems.isNotEmpty()) {
+                                    viewModel.toggleSelection(item)
+                                } else {
+                                    onOpenMedia(item)
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
+                }
+            }
+            if (isProcessing) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.5f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    CircularProgressIndicator()
                 }
             }
         }
