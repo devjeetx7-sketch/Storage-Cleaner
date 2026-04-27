@@ -6,10 +6,14 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -35,7 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CleanerDashboard(
     viewModel: CleanerViewModel = hiltViewModel(),
@@ -74,6 +78,35 @@ fun CleanerDashboard(
                     titleContentColor = MaterialTheme.colorScheme.onPrimaryContainer
                 )
             )
+        },
+        floatingActionButtonPosition = FabPosition.Center,
+        floatingActionButton = {
+            Button(
+                onClick = { viewModel.startCleaning() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .height(64.dp),
+                shape = RoundedCornerShape(32.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 12.dp, pressedElevation = 4.dp),
+                enabled = !isCleaning
+            ) {
+                Icon(
+                    Icons.Default.CleaningServices,
+                    contentDescription = "Clean",
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = if (isCleaning) "Cleaning in progress..." else "Clean Junk",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     ) { paddingValues ->
         Box(
@@ -81,148 +114,133 @@ fun CleanerDashboard(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+            val cardItems = listOf(
+                Triple("Junk Files", formatSize(stats.junkSize), Icons.Default.Warning),
+                Triple("Cache", formatSize(stats.cacheSize), Icons.Default.Memory),
+                Triple("Large Files", "${stats.largeFilesCount} files", Icons.Default.FolderSpecial),
+                Triple("Duplicate Media", "${stats.duplicateImagesCount} files", Icons.Default.ContentCopy),
+                Triple("App Residuals", "Scanning...", Icons.Default.AppBlocking)
+            )
+
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(2),
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(
+                    start = 16.dp,
+                    end = 16.dp,
+                    top = 16.dp,
+                    bottom = 110.dp // ensure fully scrolls past floating CTA
+                ),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                // Invisible corner trigger
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.End)
-                        .size(48.dp)
-                        .pointerInput(Unit) {
-                            detectTapGestures(onLongPress = { onVaultTrigger() })
-                        }
-                )
+                // Header span for Storage Meter
+                item(span = { GridItemSpan(2) }) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        // Invisible corner trigger
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.End)
+                                .size(48.dp)
+                                .pointerInput(Unit) {
+                                    detectTapGestures(onLongPress = { onVaultTrigger() })
+                                }
+                        )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                // Storage Meter
-                Box(
-                    contentAlignment = Alignment.Center,
-                    modifier = Modifier
-                        .size(200.dp)
-                        .clickable {
-                            vaultTapCount++
-                            if (vaultTapCount >= 5) {
-                                vaultTapCount = 0
-                                onVaultTrigger()
+                        // Storage Meter
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(200.dp)
+                                .combinedClickable(
+                                    indication = null,
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    onClick = {
+                                        vaultTapCount++
+                                        if (vaultTapCount >= 5) {
+                                            vaultTapCount = 0
+                                            onVaultTrigger()
+                                        }
+                                    },
+                                    onLongClick = {
+                                        onVaultTrigger()
+                                    }
+                                )
+                        ) {
+                            val progress = if (stats.totalSpace > 0) {
+                                stats.usedSpace.toFloat() / stats.totalSpace.toFloat()
+                            } else 0f
+
+                            val animatedProgress by animateFloatAsState(
+                                targetValue = if (isCleaning) 0f else progress,
+                                animationSpec = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
+                                label = "StorageProgress"
+                            )
+
+                            val trackColor = MaterialTheme.colorScheme.surfaceVariant
+                            val startColor = MaterialTheme.colorScheme.primary
+                            val endColor = MaterialTheme.colorScheme.tertiary
+
+                            Canvas(modifier = Modifier.fillMaxSize()) {
+                                drawArc(
+                                    color = trackColor,
+                                    startAngle = 135f,
+                                    sweepAngle = 270f,
+                                    useCenter = false,
+                                    style = Stroke(width = 24.dp.toPx(), cap = StrokeCap.Round)
+                                )
+
+                                drawArc(
+                                    brush = Brush.linearGradient(
+                                        colors = listOf(startColor, endColor)
+                                    ),
+                                    startAngle = 135f,
+                                    sweepAngle = 270f * animatedProgress,
+                                    useCenter = false,
+                                    style = Stroke(width = 24.dp.toPx(), cap = StrokeCap.Round)
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                val percentage = (animatedProgress * 100).toInt()
+                                Text(
+                                    text = if (isCleaning) "Cleaning..." else "$percentage%",
+                                    style = MaterialTheme.typography.displayMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                Text(
+                                    text = "${formatSize(stats.usedSpace)} / ${formatSize(stats.totalSpace)}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
-                ) {
-                    val progress = if (stats.totalSpace > 0) {
-                        stats.usedSpace.toFloat() / stats.totalSpace.toFloat()
-                    } else 0f
 
-                    val animatedProgress by animateFloatAsState(
-                        targetValue = if (isCleaning) 0f else progress,
-                        animationSpec = tween(durationMillis = 1500, easing = FastOutSlowInEasing),
-                        label = "StorageProgress"
-                    )
+                        Spacer(modifier = Modifier.height(32.dp))
 
-                    val trackColor = MaterialTheme.colorScheme.surfaceVariant
-                    val startColor = MaterialTheme.colorScheme.primary
-                    val endColor = MaterialTheme.colorScheme.tertiary
-
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        drawArc(
-                            color = trackColor,
-                            startAngle = 135f,
-                            sweepAngle = 270f,
-                            useCenter = false,
-                            style = Stroke(width = 24.dp.toPx(), cap = StrokeCap.Round)
-                        )
-
-                        drawArc(
-                            brush = Brush.linearGradient(
-                                colors = listOf(startColor, endColor)
-                            ),
-                            startAngle = 135f,
-                            sweepAngle = 270f * animatedProgress,
-                            useCenter = false,
-                            style = Stroke(width = 24.dp.toPx(), cap = StrokeCap.Round)
-                        )
-                    }
-
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        val percentage = (animatedProgress * 100).toInt()
-                        Text(
-                            text = if (isCleaning) "Cleaning..." else "$percentage%",
-                            style = MaterialTheme.typography.displayMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-                        Text(
-                            text = "${formatSize(stats.usedSpace)} / ${formatSize(stats.totalSpace)}",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        if (freedSpace > 0 && !isCleaning) {
+                            Text(
+                                text = "Freed up ${formatSize(freedSpace)}!",
+                                color = Color(0xFF4CAF50),
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 16.dp)
+                            )
+                        }
                     }
                 }
 
-                Spacer(modifier = Modifier.height(32.dp))
-
-                // Info Cards - Grid Layout
-                val cardItems = listOf(
-                    Triple("Junk Files", formatSize(stats.junkSize), Icons.Default.Warning),
-                    Triple("Cache", formatSize(stats.cacheSize), Icons.Default.Memory),
-                    Triple("Large Files", "${stats.largeFilesCount} files", Icons.Default.FolderSpecial),
-                    Triple("Duplicate Media", "${stats.duplicateImagesCount} files", Icons.Default.ContentCopy),
-                    Triple("App Residuals", "Scanning...", Icons.Default.AppBlocking)
-                )
-
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
-                    modifier = Modifier.weight(1f),
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    items(cardItems) { (title, value, icon) ->
-                        InfoCard(
-                            title = title,
-                            value = value,
-                            icon = icon
-                        )
-                    }
-                }
-
-                if (freedSpace > 0 && !isCleaning) {
-                    Text(
-                        text = "Freed up ${formatSize(freedSpace)}!",
-                        color = Color(0xFF4CAF50),
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(vertical = 16.dp)
-                    )
-                } else {
-                    Spacer(modifier = Modifier.height(32.dp))
-                }
-
-                Button(
-                    onClick = { viewModel.startCleaning() },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(64.dp)
-                        .padding(bottom = 8.dp),
-                    shape = RoundedCornerShape(32.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary,
-                        contentColor = MaterialTheme.colorScheme.onPrimary
-                    ),
-                    elevation = ButtonDefaults.buttonElevation(defaultElevation = 8.dp, pressedElevation = 4.dp),
-                    enabled = !isCleaning
-                ) {
-                    Icon(
-                        Icons.Default.CleaningServices,
-                        contentDescription = "Clean",
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = if (isCleaning) "Cleaning in progress..." else "Clean Junk",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold
+                // Info Cards items
+                items(cardItems) { (title, value, icon) ->
+                    InfoCard(
+                        title = title,
+                        value = value,
+                        icon = icon
                     )
                 }
             }

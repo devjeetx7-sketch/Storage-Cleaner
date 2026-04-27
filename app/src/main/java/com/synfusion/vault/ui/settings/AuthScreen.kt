@@ -1,16 +1,21 @@
 package com.synfusion.vault.ui.settings
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.fragment.app.FragmentActivity
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -76,24 +81,18 @@ fun AuthScreen(
                     )
                 }
             }
-            Spacer(modifier = Modifier.height(48.dp))
+            Spacer(modifier = Modifier.height(32.dp))
 
             when (step) {
                 AuthStep.SET_PIN -> {
-                    Text("Create a 4-digit PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Create a 4-digit PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(24.dp))
-                    OutlinedTextField(
-                        value = pin,
-                        onValueChange = { if (it.length <= 4) pin = it },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
-                    )
+                    PinDots(pin = pin)
                     Spacer(modifier = Modifier.height(32.dp))
-                    Button(
-                        onClick = {
+                    PinKeypad(
+                        onNumberClick = { if (pin.length < 4) pin += it },
+                        onBackspaceClick = { if (pin.isNotEmpty()) pin = pin.dropLast(1) },
+                        onNextClick = {
                             if (pin.length == 4) {
                                 step = AuthStep.CONFIRM_PIN
                                 error = ""
@@ -101,27 +100,18 @@ fun AuthScreen(
                                 error = "PIN must be 4 digits"
                             }
                         },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = androidx.compose.foundation.shape.CircleShape
-                    ) {
-                        Text("Next", style = MaterialTheme.typography.titleMedium)
-                    }
+                        showNext = pin.length == 4
+                    )
                 }
                 AuthStep.CONFIRM_PIN -> {
-                    Text("Confirm PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Confirm PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(24.dp))
-                    OutlinedTextField(
-                        value = confirmPin,
-                        onValueChange = { if (it.length <= 4) confirmPin = it },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
-                    )
+                    PinDots(pin = confirmPin)
                     Spacer(modifier = Modifier.height(32.dp))
-                    Button(
-                        onClick = {
+                    PinKeypad(
+                        onNumberClick = { if (confirmPin.length < 4) confirmPin += it },
+                        onBackspaceClick = { if (confirmPin.isNotEmpty()) confirmPin = confirmPin.dropLast(1) },
+                        onNextClick = {
                             if (pin == confirmPin) {
                                 authManager.setPin(pin)
                                 step = AuthStep.BIOMETRIC_OPT_IN
@@ -130,14 +120,11 @@ fun AuthScreen(
                                 confirmPin = ""
                             }
                         },
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = androidx.compose.foundation.shape.CircleShape
-                    ) {
-                        Text("Confirm", style = MaterialTheme.typography.titleMedium)
-                    }
+                        showNext = confirmPin.length == 4
+                    )
                 }
                 AuthStep.BIOMETRIC_OPT_IN -> {
-                    Text("Enable Biometric Unlock?", style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Enable Biometric Unlock?", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(32.dp))
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         OutlinedButton(
@@ -146,7 +133,7 @@ fun AuthScreen(
                                 onAuthSuccess()
                             },
                             modifier = Modifier.weight(1f).height(56.dp),
-                            shape = androidx.compose.foundation.shape.CircleShape
+                            shape = CircleShape
                         ) {
                             Text("Skip")
                         }
@@ -156,33 +143,34 @@ fun AuthScreen(
                                 onAuthSuccess()
                             },
                             modifier = Modifier.weight(1f).height(56.dp),
-                            shape = androidx.compose.foundation.shape.CircleShape
+                            shape = CircleShape
                         ) {
                             Text("Enable")
                         }
                     }
                 }
                 AuthStep.UNLOCK -> {
-                    Text("Enter PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Text("Enter PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.height(24.dp))
-                    OutlinedTextField(
-                        value = pin,
-                        onValueChange = {
-                            if (it.length <= 4) pin = it
-                            if (pin.length == 4) {
-                                if (authManager.verifyPin(pin)) {
-                                    onAuthSuccess()
-                                } else {
-                                    error = "Incorrect PIN"
-                                    pin = ""
+                    PinDots(pin = pin)
+                    Spacer(modifier = Modifier.height(32.dp))
+                    PinKeypad(
+                        onNumberClick = {
+                            if (pin.length < 4) {
+                                pin += it
+                                if (pin.length == 4) {
+                                    if (authManager.verifyPin(pin)) {
+                                        onAuthSuccess()
+                                    } else {
+                                        error = "Incorrect PIN"
+                                        pin = ""
+                                    }
                                 }
                             }
                         },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
-                        visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
+                        onBackspaceClick = { if (pin.isNotEmpty()) pin = pin.dropLast(1) },
+                        onNextClick = { },
+                        showNext = false
                     )
                 }
             }
@@ -190,6 +178,109 @@ fun AuthScreen(
             if (error.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+@Composable
+fun PinDots(pin: String) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        for (i in 1..4) {
+            val isFilled = i <= pin.length
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(
+                        if (isFilled) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.surfaceVariant
+                    )
+            )
+        }
+    }
+}
+
+@Composable
+fun PinKeypad(
+    onNumberClick: (String) -> Unit,
+    onBackspaceClick: () -> Unit,
+    onNextClick: () -> Unit,
+    showNext: Boolean
+) {
+    val keys = listOf(
+        listOf("1", "2", "3"),
+        listOf("4", "5", "6"),
+        listOf("7", "8", "9"),
+        listOf("backspace", "0", "next")
+    )
+
+    Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        for (row in keys) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                for (key in row) {
+                    when (key) {
+                        "backspace" -> {
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .clickable { onBackspaceClick() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Backspace,
+                                    contentDescription = "Backspace",
+                                    tint = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        }
+                        "next" -> {
+                            Box(
+                                modifier = Modifier.size(72.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                if (showNext) {
+                                    FloatingActionButton(
+                                        onClick = onNextClick,
+                                        shape = CircleShape,
+                                        containerColor = MaterialTheme.colorScheme.primary,
+                                        contentColor = MaterialTheme.colorScheme.onPrimary,
+                                        modifier = Modifier.size(64.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                            contentDescription = "Next"
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                        else -> {
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    .clickable { onNumberClick(key) },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = key,
+                                    style = MaterialTheme.typography.headlineMedium,
+                                    fontWeight = FontWeight.Normal,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
     }
