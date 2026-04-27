@@ -63,17 +63,19 @@ class EncryptedMediaFetcher(
                     }
                 }
 
+                // If we reach here, cache thumbnail didn't exist or failed to load.
+                // We fallback to standard File decrypt to Memory flow, but we optimize it.
                 var tempFile: File? = null
                 try {
-                    val bitmap = if (entity.mediaType == "videos") {
-                        val tFile = File(options.context.cacheDir, "dec_${entity.id}.tmp")
-                        tempFile = tFile
-                        file.inputStream().use { input ->
-                            FileOutputStream(tFile).use { output ->
-                                encryptionManager.decrypt(input, output)
-                            }
+                    val tFile = File(options.context.cacheDir, "dec_fallback_${entity.id}.tmp")
+                    tempFile = tFile
+                    file.inputStream().use { input ->
+                        FileOutputStream(tFile).use { output ->
+                            encryptionManager.decrypt(input, output)
                         }
+                    }
 
+                    val bitmap = if (entity.mediaType == "videos") {
                         val retriever = MediaMetadataRetriever()
                         try {
                             retriever.setDataSource(tFile.absolutePath)
@@ -84,13 +86,6 @@ class EncryptedMediaFetcher(
                             retriever.release()
                         }
                     } else {
-                        val tFile = File(options.context.cacheDir, "dec_${entity.id}.tmp")
-                        tempFile = tFile
-                        file.inputStream().use { input ->
-                            FileOutputStream(tFile).use { output ->
-                                encryptionManager.decrypt(input, output)
-                            }
-                        }
                         val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                         BitmapFactory.decodeFile(tFile.absolutePath, boundsOptions)
 
@@ -115,7 +110,6 @@ class EncryptedMediaFetcher(
                     }
 
                     if (bitmap != null) {
-                        // Cache the thumbnail
                         if (!cachedThumb.exists()) {
                             try {
                                 FileOutputStream(cachedThumb).use { out ->

@@ -36,6 +36,22 @@ class VaultRepository @Inject constructor(
 
     fun searchItems(query: String): Flow<List<VaultEntity>> = vaultDao.searchItems(query)
 
+    private fun getFileSize(uri: Uri): Long {
+        try {
+            context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val index = cursor.getColumnIndex(OpenableColumns.SIZE)
+                    if (index != -1 && !cursor.isNull(index)) {
+                        return cursor.getLong(index)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return 0L
+    }
+
     suspend fun importAndEncryptFile(uri: Uri?, mediaType: String): Uri? = withContext(Dispatchers.IO) {
         if (uri == null) {
             return@withContext null
@@ -63,9 +79,16 @@ class VaultRepository @Inject constructor(
             return@withContext null
         }
 
-        var tempFile: File? = null
         try {
             val originalName = getFileName(uri) ?: "file_${System.currentTimeMillis()}"
+            val originalSize = getFileSize(uri)
+
+            // Duplicate prevention
+            val existingItem = vaultDao.getItemByNameAndSize(originalName, originalSize)
+            if (existingItem != null) {
+                return@withContext uri // Return original URI so the original can be removed if user selected to delete
+            }
+
             val originalPath = uri.toString()
             val id = UUID.randomUUID().toString()
             val encryptedFileName = "$id.enc"
@@ -74,21 +97,67 @@ class VaultRepository @Inject constructor(
                 if (!exists()) mkdirs()
             }
 
-            tempFile = File(context.cacheDir, "$id.tmp")
-
-            contentResolver.openInputStream(uri)?.use { inputStream ->
-                FileOutputStream(tempFile).use { outputStream ->
-                    inputStream.copyTo(outputStream, bufferSize = 8192)
-                }
-            } ?: throw IllegalStateException("Cannot open input stream for URI: $uri")
-
             val encryptedFile = File(typeDir, encryptedFileName)
 
-            tempFile.inputStream().use { inputStream ->
+            // Generate thumbnail instantly from original URI before encrypting
+            if (mediaType == "images" || mediaType == "videos") {
+                try {
+                    val cachedThumb = File(context.cacheDir, "thumb_cache_${id}.jpg")
+                    var bitmap: android.graphics.Bitmap? = null
+
+                    if (mediaType == "videos") {
+                        val retriever = android.media.MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(context, uri)
+                            bitmap = retriever.getFrameAtTime(1000000, android.media.MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        } catch (e: Exception) {
+                            // Ignore
+                        } finally {
+                            retriever.release()
+                        }
+                    } else {
+                        val pfd = contentResolver.openFileDescriptor(uri, "r")
+                        if (pfd != null) {
+                            val boundsOptions = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                            android.graphics.BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, boundsOptions)
+
+                            val outWidth = boundsOptions.outWidth
+                            val outHeight = boundsOptions.outHeight
+                            var inSampleSize = 1
+                            val targetWidth = 300
+                            val targetHeight = 300
+
+                            if (outHeight > targetHeight || outWidth > targetWidth) {
+                                val halfHeight: Int = outHeight / 2
+                                val halfWidth: Int = outWidth / 2
+                                while (halfHeight / inSampleSize >= targetHeight && halfWidth / inSampleSize >= targetWidth) {
+                                    inSampleSize *= 2
+                                }
+                            }
+
+                            val decodeOptions = android.graphics.BitmapFactory.Options().apply {
+                                this.inSampleSize = inSampleSize
+                            }
+                            bitmap = android.graphics.BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, decodeOptions)
+                            pfd.close()
+                        }
+                    }
+
+                    if (bitmap != null) {
+                        FileOutputStream(cachedThumb).use { out ->
+                            bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, out)
+                        }
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            contentResolver.openInputStream(uri)?.use { inputStream ->
                 FileOutputStream(encryptedFile).use { outputStream ->
                     encryptionManager.encrypt(inputStream, outputStream)
                 }
-            }
+            } ?: throw IllegalStateException("Cannot open input stream for URI: $uri")
 
             val entity = VaultEntity(
                 id = id,
@@ -96,20 +165,16 @@ class VaultRepository @Inject constructor(
                 originalPath = originalPath,
                 encryptedPath = encryptedFile.absolutePath,
                 mediaType = mediaType,
-                size = encryptedFile.length(),
+                size = originalSize,
                 dateAdded = System.currentTimeMillis()
             )
 
             vaultDao.insertItem(entity)
+
             return@withContext uri
         } catch (e: Exception) {
             e.printStackTrace()
             return@withContext null
-        } finally {
-            try {
-                tempFile?.delete()
-            } catch (e: Exception) {
-            }
         }
     }
 
@@ -134,9 +199,15 @@ class VaultRepository @Inject constructor(
                 else -> Environment.DIRECTORY_DOWNLOADS
             }
 
+            val extension = android.webkit.MimeTypeMap.getFileExtensionFromUrl(item.originalName)
+            val mimeType = android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, item.originalName)
                 put(MediaStore.MediaColumns.SIZE, item.size)
+                if (mimeType != null) {
+                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
+                }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                     put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
                     put(MediaStore.MediaColumns.IS_PENDING, 1)
@@ -158,11 +229,11 @@ class VaultRepository @Inject constructor(
                 context.contentResolver.update(newUri, contentValues, null, null)
             }
 
-            vaultDao.deleteItem(item)
-            encryptedFile.delete()
+            deleteVaultItem(item)
 
             return@withContext newUri.toString()
         } catch (e: Exception) {
+            e.printStackTrace()
             return@withContext null
         }
     }
@@ -173,9 +244,16 @@ class VaultRepository @Inject constructor(
             if (encryptedFile.exists()) {
                 encryptedFile.delete()
             }
+
+            // Delete cached thumbnail if it exists
+            val cachedThumb = File(context.cacheDir, "thumb_cache_${item.id}.jpg")
+            if (cachedThumb.exists()) {
+                cachedThumb.delete()
+            }
+
             vaultDao.deleteItem(item)
         } catch (e: Exception) {
-            // Log ignored
+            e.printStackTrace()
         }
     }
 

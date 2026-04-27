@@ -100,11 +100,12 @@ class MainActivity : FragmentActivity() {
                                 val vaultViewModel: com.synfusion.vault.vault.VaultViewModel = hiltViewModel(parentEntry)
                                 val items by vaultViewModel.vaultItems.collectAsState()
 
-                                val item = items.find { it.id == itemId }
+                                val initialIndex = items.indexOfFirst { it.id == itemId }
 
-                                if (item != null) {
+                                if (initialIndex != -1) {
                                     MediaViewerScreen(
-                                        entity = item,
+                                        items = items,
+                                        initialIndex = initialIndex,
                                         encryptionManager = encryptionManager,
                                         onBack = {
                                             navController.popBackStack()
