@@ -283,7 +283,7 @@ fun CleanerDashboard(
                                                     translationY = rocketTranslationY
                                                     scaleX = rocketScale
                                                     scaleY = rocketScale
-                                                    rotationZ = 45f
+                                                    rotationZ = -45f
                                                 },
                                             tint = MaterialTheme.colorScheme.primary
                                         )
@@ -348,7 +348,13 @@ fun CleanerDashboard(
                 }
 
                 // Info Cards items
-                items(cardItems) { (title, value, icon) ->
+                items(
+                    count = cardItems.size,
+                    span = { index ->
+                        if (index == cardItems.size - 1) GridItemSpan(2) else GridItemSpan(1)
+                    }
+                ) { index ->
+                    val (title, value, icon) = cardItems[index]
                     InfoCard(
                         title = title,
                         value = value,
