@@ -55,19 +55,20 @@ fun MediaViewerScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(entity.originalName, maxLines = 1) },
+                title = { Text(entity.originalName, maxLines = 1, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Black,
+                    containerColor = Color.Black.copy(alpha = 0.5f),
                     titleContentColor = Color.White,
                     navigationIconContentColor = Color.White
                 )
             )
-        }
+        },
+        containerColor = Color.Black
     ) { padding ->
         Box(
             modifier = Modifier

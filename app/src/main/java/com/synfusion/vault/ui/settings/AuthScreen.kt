@@ -45,37 +45,53 @@ fun AuthScreen(
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text(if (isFirstTime) "Setup Vault" else "Unlock Vault") })
+            TopAppBar(
+                title = { Text(if (isFirstTime) "Setup Vault" else "Unlock Vault") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
+            )
         }
     ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(32.dp),
+                .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.Lock,
-                contentDescription = null,
-                modifier = Modifier.size(64.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
-            Spacer(modifier = Modifier.height(32.dp))
+            Surface(
+                modifier = Modifier.size(96.dp),
+                shape = androidx.compose.foundation.shape.CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        modifier = Modifier.size(48.dp),
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(48.dp))
 
             when (step) {
                 AuthStep.SET_PIN -> {
-                    Text("Create a 4-digit PIN", style = MaterialTheme.typography.titleLarge)
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Create a 4-digit PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(24.dp))
                     OutlinedTextField(
                         value = pin,
                         onValueChange = { if (it.length <= 4) pin = it },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(32.dp))
                     Button(
                         onClick = {
                             if (pin.length == 4) {
@@ -84,22 +100,26 @@ fun AuthScreen(
                             } else {
                                 error = "PIN must be 4 digits"
                             }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = androidx.compose.foundation.shape.CircleShape
                     ) {
-                        Text("Next")
+                        Text("Next", style = MaterialTheme.typography.titleMedium)
                     }
                 }
                 AuthStep.CONFIRM_PIN -> {
-                    Text("Confirm PIN", style = MaterialTheme.typography.titleLarge)
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Confirm PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(24.dp))
                     OutlinedTextField(
                         value = confirmPin,
                         onValueChange = { if (it.length <= 4) confirmPin = it },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                     )
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(32.dp))
                     Button(
                         onClick = {
                             if (pin == confirmPin) {
@@ -109,37 +129,42 @@ fun AuthScreen(
                                 error = "PINs do not match"
                                 confirmPin = ""
                             }
-                        }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(56.dp),
+                        shape = androidx.compose.foundation.shape.CircleShape
                     ) {
-                        Text("Confirm")
+                        Text("Confirm", style = MaterialTheme.typography.titleMedium)
                     }
                 }
                 AuthStep.BIOMETRIC_OPT_IN -> {
-                    Text("Enable Biometric Unlock?", style = MaterialTheme.typography.titleLarge)
+                    Text("Enable Biometric Unlock?", style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
                     Spacer(modifier = Modifier.height(32.dp))
-                    Row {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         OutlinedButton(
                             onClick = {
                                 authManager.setBiometricEnabled(false)
                                 onAuthSuccess()
-                            }
+                            },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = androidx.compose.foundation.shape.CircleShape
                         ) {
                             Text("Skip")
                         }
-                        Spacer(modifier = Modifier.width(16.dp))
                         Button(
                             onClick = {
                                 authManager.setBiometricEnabled(true)
                                 onAuthSuccess()
-                            }
+                            },
+                            modifier = Modifier.weight(1f).height(56.dp),
+                            shape = androidx.compose.foundation.shape.CircleShape
                         ) {
                             Text("Enable")
                         }
                     }
                 }
                 AuthStep.UNLOCK -> {
-                    Text("Enter PIN", style = MaterialTheme.typography.titleLarge)
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Text("Enter PIN", style = MaterialTheme.typography.headlineSmall, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+                    Spacer(modifier = Modifier.height(24.dp))
                     OutlinedTextField(
                         value = pin,
                         onValueChange = {
@@ -155,14 +180,16 @@ fun AuthScreen(
                         },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
                         visualTransformation = PasswordVisualTransformation(),
-                        singleLine = true
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp)
                     )
                 }
             }
 
             if (error.isNotEmpty()) {
                 Spacer(modifier = Modifier.height(16.dp))
-                Text(error, color = MaterialTheme.colorScheme.error)
+                Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
             }
         }
     }
