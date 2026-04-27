@@ -232,15 +232,25 @@ fun CleanerDashboard(
                                 label = "CleaningAnimation"
                             ) { cleaning ->
                                 if (cleaning) {
-                                    val rocketTranslationY by animateFloatAsState(
-                                        targetValue = -100f,
+                                    val infiniteTransition = rememberInfiniteTransition(label = "RocketFly")
+                                    val rocketTranslationX by infiniteTransition.animateFloat(
+                                        initialValue = -80f,
+                                        targetValue = 80f,
                                         animationSpec = infiniteRepeatable(
-                                            animation = tween(1000, easing = FastOutSlowInEasing),
-                                            repeatMode = RepeatMode.Reverse
+                                            animation = tween(2000, easing = FastOutSlowInEasing)
                                         ),
-                                        label = "RocketTranslation"
+                                        label = "RocketX"
                                     )
-                                    val rocketScale by animateFloatAsState(
+                                    val rocketTranslationY by infiniteTransition.animateFloat(
+                                        initialValue = 80f,
+                                        targetValue = -80f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(2000, easing = FastOutSlowInEasing)
+                                        ),
+                                        label = "RocketY"
+                                    )
+                                    val rocketScale by infiniteTransition.animateFloat(
+                                        initialValue = 0.8f,
                                         targetValue = 1.2f,
                                         animationSpec = infiniteRepeatable(
                                             animation = tween(1000, easing = FastOutSlowInEasing),
@@ -249,18 +259,40 @@ fun CleanerDashboard(
                                         label = "RocketScale"
                                     )
 
-                                    Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
+                                    val progressPercentage by infiniteTransition.animateFloat(
+                                        initialValue = 0f,
+                                        targetValue = 100f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(2000, easing = LinearEasing)
+                                        ),
+                                        label = "CleaningProgress"
+                                    )
+
+                                    Column(
+                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                        verticalArrangement = Arrangement.Center,
+                                        modifier = Modifier.size(160.dp)
+                                    ) {
                                         Icon(
                                             imageVector = Icons.Default.RocketLaunch,
                                             contentDescription = null,
                                             modifier = Modifier
                                                 .size(64.dp)
                                                 .graphicsLayer {
+                                                    translationX = rocketTranslationX
                                                     translationY = rocketTranslationY
                                                     scaleX = rocketScale
                                                     scaleY = rocketScale
+                                                    rotationZ = 45f
                                                 },
                                             tint = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(Modifier.height(16.dp))
+                                        Text(
+                                            text = "${progressPercentage.toInt()}%",
+                                            style = MaterialTheme.typography.titleLarge,
+                                            fontWeight = FontWeight.ExtraBold,
+                                            color = MaterialTheme.colorScheme.primary
                                         )
                                     }
                                 } else {
