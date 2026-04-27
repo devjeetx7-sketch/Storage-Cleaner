@@ -1,6 +1,8 @@
 package com.synfusion.vault.media
 
+import android.app.Activity
 import android.net.Uri
+import android.view.WindowManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
@@ -42,6 +44,15 @@ fun MediaViewerScreen(
 ) {
     val context = LocalContext.current
     var hasError by remember { mutableStateOf(false) }
+
+    // FLAG_SECURE for Viewer
+    DisposableEffect(Unit) {
+        val window = (context as? Activity)?.window
+        window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        onDispose {
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -102,7 +113,7 @@ fun MediaViewerScreen(
                                     }
                                     tempFile = File(context.cacheDir, "${UUID.randomUUID()}.tmp")
                                     encryptedFile.inputStream().use { input ->
-                                        FileOutputStream(tempFile).use { output ->
+                                        FileOutputStream(tempFile!!).use { output ->
                                             encryptionManager.decrypt(input, output)
                                         }
                                     }

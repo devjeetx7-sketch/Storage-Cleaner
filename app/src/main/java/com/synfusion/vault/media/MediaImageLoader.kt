@@ -17,7 +17,6 @@ import com.synfusion.vault.debug.ErrorLogger
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import javax.inject.Inject
@@ -56,41 +55,47 @@ class EncryptedMediaFetcher(
 
         return try {
             withContext(Dispatchers.IO) {
-                val bitmap = if (entity.mediaType == "videos") {
-                    val tempFile = File.createTempFile("temp_vid_thumb", ".mp4", options.context.cacheDir)
-                    file.inputStream().use { input ->
-                        FileOutputStream(tempFile).use { output ->
-                            encryptionManager.decrypt(input, output)
+                var tempFile: File? = null
+                try {
+                    val bitmap = if (entity.mediaType == "videos") {
+                        tempFile = File.createTempFile("temp_vid_thumb", ".mp4", options.context.cacheDir)
+                        file.inputStream().use { input ->
+                            FileOutputStream(tempFile).use { output ->
+                                encryptionManager.decrypt(input, output)
+                            }
                         }
+
+                        val retriever = MediaMetadataRetriever()
+                        try {
+                            retriever.setDataSource(tempFile.absolutePath)
+                            retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                        } catch (e: Exception) {
+                            errorLogger.logError(ErrorLogger.Codes.PLAY_VID, "Failed to extract thumbnail", e, "videos", "fetch_thumb")
+                            null
+                        } finally {
+                            retriever.release()
+                        }
+                    } else {
+                        // Use a temp file for images too to avoid OOM with large image byte arrays
+                        tempFile = File.createTempFile("temp_img", ".jpg", options.context.cacheDir)
+                        file.inputStream().use { input ->
+                            FileOutputStream(tempFile).use { output ->
+                                encryptionManager.decrypt(input, output)
+                            }
+                        }
+                        BitmapFactory.decodeFile(tempFile.absolutePath)
                     }
 
-                    val retriever = MediaMetadataRetriever()
-                    try {
-                        retriever.setDataSource(tempFile.absolutePath)
-                        retriever.getFrameAtTime(0, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    } catch (e: Exception) {
-                        errorLogger.logError(ErrorLogger.Codes.PLAY_VID, "Failed to extract thumbnail", e, "videos", "fetch_thumb")
-                        null
-                    } finally {
-                        retriever.release()
-                        tempFile.delete()
-                    }
-                } else {
-                    val outputStream = ByteArrayOutputStream()
-                    file.inputStream().use { input ->
-                        encryptionManager.decrypt(input, outputStream)
-                    }
-                    val decryptedBytes = outputStream.toByteArray()
-                    BitmapFactory.decodeByteArray(decryptedBytes, 0, decryptedBytes.size)
+                    if (bitmap != null) {
+                        DrawableResult(
+                            drawable = BitmapDrawable(options.context.resources, bitmap),
+                            isSampled = false,
+                            dataSource = DataSource.DISK
+                        )
+                    } else null
+                } finally {
+                    tempFile?.delete()
                 }
-
-                if (bitmap != null) {
-                    DrawableResult(
-                        drawable = BitmapDrawable(options.context.resources, bitmap),
-                        isSampled = false,
-                        dataSource = DataSource.DISK
-                    )
-                } else null
             }
         } catch (e: Exception) {
             errorLogger.logError(ErrorLogger.Codes.IMPORT_IMG, "Failed to decode media", e, entity.mediaType, "fetch")
