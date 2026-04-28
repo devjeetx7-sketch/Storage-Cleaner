@@ -23,4 +23,7 @@ interface VaultDao {
 
     @Query("SELECT * FROM vault_items WHERE originalName LIKE '%' || :query || '%'")
     fun searchItems(query: String): Flow<List<VaultEntity>>
+
+    @Query("SELECT * FROM vault_items WHERE originalName = :name AND size = :size LIMIT 1")
+    suspend fun getItemByNameAndSize(name: String, size: Long): VaultEntity?
 }

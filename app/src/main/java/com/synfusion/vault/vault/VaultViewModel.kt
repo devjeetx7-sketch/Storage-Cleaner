@@ -33,6 +33,9 @@ class VaultViewModel @Inject constructor(
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing = _isProcessing.asStateFlow()
 
+    private val _importProgress = MutableStateFlow<String?>(null)
+    val importProgress = _importProgress.asStateFlow()
+
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
@@ -133,29 +136,43 @@ class VaultViewModel @Inject constructor(
     fun importFiles(uris: List<Uri>, mediaType: String, onComplete: (List<Uri>) -> Unit) {
         viewModelScope.launch {
             _isProcessing.value = true
-            val mediaStoreUris = mutableListOf<Uri>()
-            var failCount = 0
+
+            val total = uris.size
+            val completed = java.util.concurrent.atomic.AtomicInteger(0)
+            _importProgress.value = "Importing 0 / $total..."
+
+            val mediaStoreUris = java.util.concurrent.CopyOnWriteArrayList<Uri>()
+            val failCount = java.util.concurrent.atomic.AtomicInteger(0)
+
+            // Limit concurrency to prevent OOM / Disk IO thrashing
+            @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+            val dispatcher = kotlinx.coroutines.Dispatchers.IO.limitedParallelism(3)
 
             supervisorScope {
                 val jobs = uris.map { uri ->
-                    async {
+                    async(dispatcher) {
                         val originalUri = vaultRepository.importAndEncryptFile(uri, mediaType)
                         if (originalUri != null) {
-                            mediaStoreUris.add(getMediaStoreUriFromSaf(originalUri, mediaType) ?: originalUri)
+                            val mediaStoreUri = getMediaStoreUriFromSaf(originalUri, mediaType) ?: originalUri
+                            mediaStoreUris.add(mediaStoreUri)
                         } else {
-                            failCount++
+                            failCount.incrementAndGet()
                         }
+
+                        val currentCompleted = completed.incrementAndGet()
+                        _importProgress.value = "Importing $currentCompleted / $total..."
                     }
                 }
                 jobs.awaitAll()
             }
 
-            if (failCount > 0) {
-                _error.value = "Failed to import $failCount file(s)."
+            if (failCount.get() > 0) {
+                _error.value = "Failed to import ${failCount.get()} file(s)."
             }
 
             _isProcessing.value = false
-            onComplete(mediaStoreUris)
+            _importProgress.value = null
+            onComplete(mediaStoreUris.toList())
         }
     }
 

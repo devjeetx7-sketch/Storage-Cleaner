@@ -60,6 +60,7 @@ fun VaultScreen(
     val selectedMediaType by viewModel.selectedMediaType.collectAsState()
     val searchQuery by viewModel.searchQuery.collectAsState()
     val isProcessing by viewModel.isProcessing.collectAsState()
+    val importProgress by viewModel.importProgress.collectAsState()
     val error by viewModel.error.collectAsState()
 
 
@@ -347,10 +348,21 @@ fun VaultScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.3f)),
+                        .background(Color.Black.copy(alpha = 0.5f)),
                     contentAlignment = Alignment.Center
                 ) {
-                    PremiumCurvyLoader()
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        PremiumCurvyLoader()
+                        if (importProgress != null) {
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = importProgress!!,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+                            )
+                        }
+                    }
                 }
             }
 
