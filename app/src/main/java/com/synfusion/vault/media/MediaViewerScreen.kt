@@ -3,6 +3,8 @@ package com.synfusion.vault.media
 import android.app.Activity
 import android.net.Uri
 import android.view.WindowManager
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -11,16 +13,12 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.MediaItem
@@ -32,6 +30,8 @@ import coil.compose.AsyncImage
 import com.synfusion.vault.data.VaultEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.util.UUID
@@ -48,7 +48,6 @@ fun MediaViewerScreen(
     val pagerState = rememberPagerState(initialPage = initialIndex, pageCount = { items.size })
     val currentEntity = items[pagerState.currentPage]
 
-    // FLAG_SECURE for Viewer
     DisposableEffect(Unit) {
         val window = (context as? Activity)?.window
         window?.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
@@ -79,7 +78,8 @@ fun MediaViewerScreen(
             state = pagerState,
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
+                .padding(padding),
+            pageSpacing = 16.dp
         ) { page ->
             val entity = items[page]
             MediaViewerItem(
@@ -99,112 +99,123 @@ fun MediaViewerItem(
 ) {
     val context = LocalContext.current
     var hasError by remember { mutableStateOf(false) }
+    var tempFilePath by remember { mutableStateOf("") }
+    var isDecrypting by remember { mutableStateOf(true) }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black),
-        contentAlignment = Alignment.Center
-    ) {
-        if (hasError) {
-            Text(
-                text = "Failed to load media.",
-                color = Color.Red,
-                style = MaterialTheme.typography.bodyLarge
-            )
-        } else {
-            var tempFilePath by remember { mutableStateOf("") }
+    LaunchedEffect(entity) {
+        isDecrypting = true
+        tempFilePath = ""
+        hasError = false
 
-            LaunchedEffect(entity) {
-                var tempFile: File? = null
-                try {
-                    withContext(Dispatchers.IO) {
-                        val encryptedFile = File(entity.encryptedPath)
-                        if (!encryptedFile.exists()) {
-                            hasError = true
-                            return@withContext
-                        }
-                        tempFile = File(context.cacheDir, "view_${UUID.randomUUID()}.tmp")
-                        encryptedFile.inputStream().use { input ->
-                            FileOutputStream(tempFile!!).use { output ->
-                                encryptionManager.decrypt(input, output)
-                            }
-                        }
-                        tempFilePath = tempFile?.absolutePath ?: ""
-                    }
-                } catch (e: Exception) {
-                    tempFile?.delete()
-                    hasError = true
-                }
+        withContext(Dispatchers.IO) {
+            val encryptedFile = File(entity.encryptedPath)
+            if (!encryptedFile.exists()) {
+                hasError = true
+                isDecrypting = false
+                return@withContext
             }
 
-            DisposableEffect(tempFilePath) {
-                onDispose {
-                    if (tempFilePath.isNotEmpty()) {
-                        File(tempFilePath).delete()
+            val tempFile = File(context.cacheDir, "view_${UUID.randomUUID()}.tmp")
+            try {
+                encryptedFile.inputStream().use { input ->
+                    BufferedInputStream(input).use { bufferedInput ->
+                        FileOutputStream(tempFile).use { output ->
+                            BufferedOutputStream(output).use { bufferedOutput ->
+                                encryptionManager.decrypt(bufferedInput, bufferedOutput)
+                            }
+                        }
                     }
                 }
-            }
-
-            if (tempFilePath.isNotEmpty()) {
-                when (entity.mediaType) {
-                    "images" -> {
-                        AsyncImage(
-                            model = File(tempFilePath),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            onState = { state ->
-                                if (state is coil.compose.AsyncImagePainter.State.Error) {
-                                    hasError = true
-                                }
-                            }
-                        )
-                    }
-                    "videos", "audio" -> {
-                        val exoPlayer = remember(tempFilePath) {
-                            ExoPlayer.Builder(context).build().apply {
-                                val mediaItem = MediaItem.fromUri(Uri.fromFile(File(tempFilePath)))
-                                setMediaItem(mediaItem)
-                                addListener(object : Player.Listener {
-                                    override fun onPlayerError(error: PlaybackException) {
-                                        hasError = true
-                                    }
-                                })
-                                prepare()
-                                // Auto-play if this is the active page
-                                playWhenReady = isActive
-                            }
-                        }
-
-                        // Update playWhenReady when isActive changes
-                        LaunchedEffect(isActive) {
-                            exoPlayer.playWhenReady = isActive
-                            if (!isActive) {
-                                exoPlayer.pause()
-                            }
-                        }
-
-                        DisposableEffect(exoPlayer) {
-                            onDispose {
-                                exoPlayer.release()
-                            }
-                        }
-
-                        AndroidView(
-                            factory = {
-                                PlayerView(context).apply {
-                                    player = exoPlayer
-                                    setShowNextButton(false)
-                                    setShowPreviousButton(false)
-                                }
-                            },
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
-                }
-            } else if (!hasError) {
-                CircularProgressIndicator(color = Color.White)
+                tempFilePath = tempFile.absolutePath
+            } catch (e: Exception) {
+                tempFile.delete()
+                hasError = true
+            } finally {
+                isDecrypting = false
             }
         }
     }
+
+    DisposableEffect(tempFilePath) {
+        onDispose {
+            if (tempFilePath.isNotEmpty()) {
+                File(tempFilePath).delete()
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize().background(Color.Black),
+        contentAlignment = Alignment.Center
+    ) {
+        if (hasError) {
+            Text("Failed to load media.", color = Color.Red)
+        } else {
+            // Instant preview with thumbnail using Crossfade for smooth transition
+            Crossfade(targetState = tempFilePath.isNotEmpty(), animationSpec = tween(500), label = "MediaTransition") { loaded ->
+                if (loaded) {
+                    // Full Resolution Media
+                    when (entity.mediaType) {
+                        "images" -> {
+                            AsyncImage(
+                                model = File(tempFilePath),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit
+                            )
+                        }
+                        "videos", "audio" -> {
+                            VideoPlayer(path = tempFilePath, isActive = isActive)
+                        }
+                    }
+                } else {
+                    // Thumbnail Placeholder (Instant)
+                    if (entity.thumbnailPath != null) {
+                        AsyncImage(
+                            model = File(entity.thumbnailPath),
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Fit
+                        )
+                    } else if (isDecrypting) {
+                        CircularProgressIndicator(color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun VideoPlayer(path: String, isActive: Boolean) {
+    val context = LocalContext.current
+    val exoPlayer = remember(path) {
+        ExoPlayer.Builder(context).build().apply {
+            val mediaItem = MediaItem.fromUri(Uri.fromFile(File(path)))
+            setMediaItem(mediaItem)
+            prepare()
+            playWhenReady = isActive
+        }
+    }
+
+    LaunchedEffect(isActive) {
+        exoPlayer.playWhenReady = isActive
+        if (!isActive) exoPlayer.pause()
+    }
+
+    DisposableEffect(exoPlayer) {
+        onDispose { exoPlayer.release() }
+    }
+
+    AndroidView(
+        factory = {
+            PlayerView(context).apply {
+                player = exoPlayer
+                useController = true
+                setShowNextButton(false)
+                setShowPreviousButton(false)
+            }
+        },
+        modifier = Modifier.fillMaxSize()
+    )
 }

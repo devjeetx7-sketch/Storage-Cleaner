@@ -25,7 +25,7 @@ class EncryptionManager @Inject constructor() {
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val IV_SIZE = 12
         private const val TAG_SIZE = 128
-        private const val BUFFER_SIZE = 8192 // 8KB buffer for streaming large files
+        private const val BUFFER_SIZE = 65536 // 64KB buffer for streaming large files
     }
 
     private val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
