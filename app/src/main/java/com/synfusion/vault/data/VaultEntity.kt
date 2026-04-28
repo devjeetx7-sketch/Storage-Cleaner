@@ -12,5 +12,7 @@ data class VaultEntity(
     val mediaType: String,
     val size: Long,
     val dateAdded: Long,
-    val isHidden: Boolean = true
+    val isHidden: Boolean = true,
+    val thumbnailPath: String? = null,
+    val vaultFolderId: String? = null
 )

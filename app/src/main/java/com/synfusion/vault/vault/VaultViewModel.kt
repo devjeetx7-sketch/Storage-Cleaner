@@ -151,7 +151,7 @@ class VaultViewModel @Inject constructor(
             supervisorScope {
                 val jobs = uris.map { uri ->
                     async(dispatcher) {
-                        val originalUri = vaultRepository.importAndEncryptFile(uri, mediaType)
+                        val originalUri = vaultRepository.importAndEncryptFile(uri, mediaType, null)
                         if (originalUri != null) {
                             val mediaStoreUri = getMediaStoreUriFromSaf(originalUri, mediaType) ?: originalUri
                             mediaStoreUris.add(mediaStoreUri)
