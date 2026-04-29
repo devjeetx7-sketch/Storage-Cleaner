@@ -6,6 +6,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
+import java.security.MessageDigest
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.CipherInputStream
@@ -55,19 +56,24 @@ class EncryptionManager @Inject constructor() {
         return (keyStore.getEntry(KEY_ALIAS, null) as KeyStore.SecretKeyEntry).secretKey
     }
 
-    suspend fun encrypt(inputStream: InputStream, outputStream: OutputStream) = withContext(Dispatchers.IO) {
+    suspend fun encrypt(inputStream: InputStream, outputStream: OutputStream): String = withContext(Dispatchers.IO) {
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getKey())
         val iv = cipher.iv
         outputStream.write(iv)
 
+        val digest = MessageDigest.getInstance("SHA-256")
+
         CipherOutputStream(outputStream, cipher).use { cipherOut ->
             val buffer = ByteArray(BUFFER_SIZE)
             var bytesRead: Int
             while (inputStream.read(buffer).also { bytesRead = it } != -1) {
+                digest.update(buffer, 0, bytesRead)
                 cipherOut.write(buffer, 0, bytesRead)
             }
         }
+
+        digest.digest().joinToString("") { "%02x".format(it) }
     }
 
     suspend fun decrypt(inputStream: InputStream, outputStream: OutputStream) = withContext(Dispatchers.IO) {

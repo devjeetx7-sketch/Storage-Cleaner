@@ -158,7 +158,10 @@ fun MediaViewerItem(
                     when (entity.mediaType) {
                         "images" -> {
                             AsyncImage(
-                                model = File(tempFilePath),
+                                model = coil.request.ImageRequest.Builder(LocalContext.current)
+                                    .data(File(tempFilePath))
+                                    .size(coil.size.Size.ORIGINAL)
+                                    .build(),
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Fit

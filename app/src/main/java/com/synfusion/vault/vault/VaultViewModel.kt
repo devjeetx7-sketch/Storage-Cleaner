@@ -153,6 +153,9 @@ class VaultViewModel @Inject constructor(
                     async(dispatcher) {
                         val originalUri = vaultRepository.importAndEncryptFile(uri, mediaType, null)
                         if (originalUri != null) {
+                            // Check if it was a duplicate (returned original URI but not in vault again)
+                            // We only add to deletion list if we are sure it's safely in the vault.
+                            // The repository now handles duplicate detection via hash.
                             val mediaStoreUri = getMediaStoreUriFromSaf(originalUri, mediaType) ?: originalUri
                             mediaStoreUris.add(mediaStoreUri)
                         } else {

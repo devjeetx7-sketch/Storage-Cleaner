@@ -1,5 +1,6 @@
 package com.synfusion.vault.data
 
+import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
@@ -96,8 +97,8 @@ class VaultRepository @Inject constructor(
                 generateThumbnail(uri, mediaType, thumbnailFile)
             }
 
-            // 2. Encrypt and copy
-            context.contentResolver.openInputStream(uri)?.use { inputStream ->
+            // 2. Encrypt and copy (Lossless bit-for-bit)
+            val fileHash = context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 BufferedInputStream(inputStream).use { bufferedInput ->
                     FileOutputStream(encryptedFile).use { fileOut ->
                         BufferedOutputStream(fileOut).use { bufferedOutput ->
@@ -107,11 +108,19 @@ class VaultRepository @Inject constructor(
                 }
             } ?: throw IllegalStateException("Cannot open input stream for URI: $uri")
 
-            // 3. Verify success
+            // 3. Verify success and integrity
             if (!encryptedFile.exists() || encryptedFile.length() == 0L) {
                 encryptedFile.delete()
                 thumbnailFile.delete()
                 return@withContext null
+            }
+
+            // Duplicate prevention by hash
+            val existingByHash = vaultDao.getItemByHashAndSize(fileHash, originalSize)
+            if (existingByHash != null) {
+                encryptedFile.delete()
+                thumbnailFile.delete()
+                return@withContext uri
             }
 
             // 4. Save metadata
@@ -122,6 +131,7 @@ class VaultRepository @Inject constructor(
                 encryptedPath = encryptedFile.absolutePath,
                 mediaType = mediaType,
                 size = originalSize,
+                hash = fileHash,
                 dateAdded = System.currentTimeMillis(),
                 thumbnailPath = if (thumbnailFile.exists()) thumbnailFile.absolutePath else null,
                 vaultFolderId = folderId
@@ -165,7 +175,12 @@ class VaultRepository @Inject constructor(
 
             bitmap?.let {
                 FileOutputStream(outputFile).use { out ->
-                    it.compress(Bitmap.CompressFormat.JPEG, 85, out)
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                        it.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, out)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        it.compress(Bitmap.CompressFormat.WEBP, 80, out)
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -194,6 +209,20 @@ class VaultRepository @Inject constructor(
 
             val extension = MimeTypeMap.getFileExtensionFromUrl(item.originalName)
             val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
+
+            // Duplicate prevention at destination
+            val projection = arrayOf(MediaStore.MediaColumns._ID)
+            val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.SIZE} = ?"
+            val selectionArgs = arrayOf(item.originalName, item.size.toString())
+
+            context.contentResolver.query(collection, projection, selection, selectionArgs, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    // File already exists in gallery, just remove from vault
+                    deleteVaultItem(item)
+                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
+                    return@withContext ContentUris.withAppendedId(collection, id).toString()
+                }
+            }
 
             val contentValues = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, item.originalName)
