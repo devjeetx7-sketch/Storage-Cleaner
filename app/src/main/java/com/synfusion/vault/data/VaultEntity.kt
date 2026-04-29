@@ -11,6 +11,7 @@ data class VaultEntity(
     val encryptedPath: String,
     val mediaType: String,
     val size: Long,
+    val hash: String? = null,
     val dateAdded: Long,
     val isHidden: Boolean = true,
     val thumbnailPath: String? = null,
