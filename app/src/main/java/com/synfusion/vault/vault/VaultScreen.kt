@@ -86,21 +86,36 @@ fun VaultScreen(
         contract = ActivityResultContracts.PickMultipleVisualMedia()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            viewModel.importFiles(uris, selectedMediaType) { mediaStoreUris ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            viewModel.importFiles(uris, selectedMediaType) { returnedUris ->
+                val mediaStoreUris = returnedUris.filter { it.toString().startsWith("content://media/") }
+                val safUris = returnedUris.filterNot { it.toString().startsWith("content://media/") }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mediaStoreUris.isNotEmpty()) {
                     try {
                         val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, mediaStoreUris)
                         deleteRequestLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
-                } else {
+                } else if (mediaStoreUris.isNotEmpty()) {
                     mediaStoreUris.forEach { uri ->
                         try {
                             context.contentResolver.delete(uri, null, null)
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
+                    }
+                }
+
+                safUris.forEach { uri ->
+                    try {
+                        if (android.provider.DocumentsContract.isDocumentUri(context, uri)) {
+                            android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+                        } else {
+                            context.contentResolver.delete(uri, null, null)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
             }
@@ -111,21 +126,36 @@ fun VaultScreen(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         if (uris.isNotEmpty()) {
-            viewModel.importFiles(uris, selectedMediaType) { mediaStoreUris ->
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            viewModel.importFiles(uris, selectedMediaType) { returnedUris ->
+                val mediaStoreUris = returnedUris.filter { it.toString().startsWith("content://media/") }
+                val safUris = returnedUris.filterNot { it.toString().startsWith("content://media/") }
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && mediaStoreUris.isNotEmpty()) {
                     try {
                         val pendingIntent = MediaStore.createDeleteRequest(context.contentResolver, mediaStoreUris)
                         deleteRequestLauncher.launch(IntentSenderRequest.Builder(pendingIntent.intentSender).build())
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
-                } else {
+                } else if (mediaStoreUris.isNotEmpty()) {
                     mediaStoreUris.forEach { uri ->
                         try {
                             context.contentResolver.delete(uri, null, null)
                         } catch (e: Exception) {
                             e.printStackTrace()
                         }
+                    }
+                }
+
+                safUris.forEach { uri ->
+                    try {
+                        if (android.provider.DocumentsContract.isDocumentUri(context, uri)) {
+                            android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+                        } else {
+                            context.contentResolver.delete(uri, null, null)
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
                     }
                 }
             }

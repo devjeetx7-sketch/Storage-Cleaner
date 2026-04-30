@@ -93,6 +93,9 @@ class VaultViewModel @Inject constructor(
 
     private fun getMediaStoreUriFromSaf(uri: Uri?, type: String): Uri? {
         if (uri == null) return null
+        // If it's already a MediaStore URI, return it directly
+        if (uri.toString().startsWith("content://media/")) return uri
+
         try {
             if (DocumentsContract.isDocumentUri(context, uri)) {
                 val docId = DocumentsContract.getDocumentId(uri)
@@ -106,31 +109,39 @@ class VaultViewModel @Inject constructor(
                         else -> null
                     }
                     if (contentUri != null) {
-                        return ContentUris.withAppendedId(contentUri, id.toLong())
+                        try {
+                            return ContentUris.withAppendedId(contentUri, id.toLong())
+                        } catch (e: NumberFormatException) {
+                            // If it's not a number, we can't create a valid media store URI this way
+                        }
                     }
                 }
             } else if (uri.toString().contains("media/picker")) {
-                return null
+                // Photo picker URIs cannot be converted, return original
+                return uri
             }
 
+            // Fallback: try to query _ID from the original URI directly
             val proj = arrayOf(MediaStore.MediaColumns._ID)
             context.contentResolver.query(uri, proj, null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    val idIdx = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
-                    val id = cursor.getLong(idIdx)
-                    val contentUri = when (type) {
-                        "images" -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-                        "videos" -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                        "audio" -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-                        else -> MediaStore.Files.getContentUri("external")
+                    val idIdx = cursor.getColumnIndex(MediaStore.MediaColumns._ID)
+                    if (idIdx != -1) {
+                        val id = cursor.getLong(idIdx)
+                        val contentUri = when (type) {
+                            "images" -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                            "videos" -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                            "audio" -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                            else -> MediaStore.Files.getContentUri("external")
+                        }
+                        return ContentUris.withAppendedId(contentUri, id)
                     }
-                    return ContentUris.withAppendedId(contentUri, id)
                 }
             }
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        return null
+        return uri
     }
 
     fun importFiles(uris: List<Uri>, mediaType: String, onComplete: (List<Uri>) -> Unit) {
