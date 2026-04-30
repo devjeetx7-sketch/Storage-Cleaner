@@ -33,7 +33,7 @@ class VaultRepository @Inject constructor(
     private val encryptionManager: EncryptionManager
 ) {
 
-    private val vaultDir = File(context.getExternalFilesDir(null), "vault").apply {
+    private val vaultDir = File(context.filesDir, "vault_media").apply {
         if (!exists()) mkdirs()
     }
 
@@ -92,53 +92,63 @@ class VaultRepository @Inject constructor(
             val encryptedFile = File(typeDir, "$id.enc")
             val thumbnailFile = File(thumbDir, "$id.jpg")
 
-            // 1. Generate thumbnail first (unencrypted for fast loading)
-            if (mediaType == "images" || mediaType == "videos") {
-                generateThumbnail(uri, mediaType, thumbnailFile)
-            }
-
-            // 2. Encrypt and copy (Lossless bit-for-bit)
-            val fileHash = context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                BufferedInputStream(inputStream).use { bufferedInput ->
-                    FileOutputStream(encryptedFile).use { fileOut ->
-                        BufferedOutputStream(fileOut).use { bufferedOutput ->
-                            encryptionManager.encrypt(bufferedInput, bufferedOutput)
+            // 1. Encrypt and copy (Lossless bit-for-bit)
+            val fileHash = try {
+                context.contentResolver.openInputStream(uri)?.use { inputStream ->
+                    BufferedInputStream(inputStream).use { bufferedInput ->
+                        FileOutputStream(encryptedFile).use { fileOut ->
+                            BufferedOutputStream(fileOut).use { bufferedOutput ->
+                                encryptionManager.encrypt(bufferedInput, bufferedOutput)
+                            }
                         }
                     }
-                }
-            } ?: throw IllegalStateException("Cannot open input stream for URI: $uri")
+                } ?: throw IllegalStateException("Cannot open input stream for URI: $uri")
+            } catch (e: Exception) {
+                encryptedFile.delete()
+                throw e
+            }
 
-            // 3. Verify success and integrity
+            // 2. Verify success and integrity
             if (!encryptedFile.exists() || encryptedFile.length() == 0L) {
                 encryptedFile.delete()
-                thumbnailFile.delete()
                 return@withContext null
             }
 
-            // Duplicate prevention by hash
-            val existingByHash = vaultDao.getItemByHashAndSize(fileHash, originalSize)
-            if (existingByHash != null) {
+            // 3. Generate thumbnail (unencrypted for fast loading) after successful save
+            try {
+                if (mediaType == "images" || mediaType == "videos") {
+                    generateThumbnail(uri, mediaType, thumbnailFile)
+                }
+
+                // Duplicate prevention by hash
+                val existingByHash = vaultDao.getItemByHashAndSize(fileHash, originalSize)
+                if (existingByHash != null) {
+                    encryptedFile.delete()
+                    thumbnailFile.delete()
+                    return@withContext uri
+                }
+
+                // 4. Save metadata
+                val entity = VaultEntity(
+                    id = id,
+                    originalName = originalName,
+                    originalPath = uri.toString(),
+                    encryptedPath = encryptedFile.absolutePath,
+                    mediaType = mediaType,
+                    size = originalSize,
+                    hash = fileHash,
+                    dateAdded = System.currentTimeMillis(),
+                    thumbnailPath = if (thumbnailFile.exists()) thumbnailFile.absolutePath else null,
+                    vaultFolderId = folderId
+                )
+                vaultDao.insertItem(entity)
+
+                return@withContext uri
+            } catch (e: Exception) {
                 encryptedFile.delete()
                 thumbnailFile.delete()
-                return@withContext uri
+                throw e
             }
-
-            // 4. Save metadata
-            val entity = VaultEntity(
-                id = id,
-                originalName = originalName,
-                originalPath = uri.toString(),
-                encryptedPath = encryptedFile.absolutePath,
-                mediaType = mediaType,
-                size = originalSize,
-                hash = fileHash,
-                dateAdded = System.currentTimeMillis(),
-                thumbnailPath = if (thumbnailFile.exists()) thumbnailFile.absolutePath else null,
-                vaultFolderId = folderId
-            )
-            vaultDao.insertItem(entity)
-
-            return@withContext uri
         } catch (e: Exception) {
             e.printStackTrace()
             return@withContext null
