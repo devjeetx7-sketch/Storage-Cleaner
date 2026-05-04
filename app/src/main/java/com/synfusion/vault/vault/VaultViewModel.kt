@@ -76,8 +76,13 @@ class VaultViewModel @Inject constructor(
     fun deleteSelectedItems() {
         viewModelScope.launch {
             _isProcessing.value = true
-            _selectedItems.value.forEach { item ->
-                vaultRepository.deleteVaultItem(item)
+            supervisorScope {
+                val jobs = _selectedItems.value.map { item ->
+                    async {
+                        vaultRepository.deleteVaultItem(item)
+                    }
+                }
+                jobs.awaitAll()
             }
             clearSelection()
             _isProcessing.value = false
