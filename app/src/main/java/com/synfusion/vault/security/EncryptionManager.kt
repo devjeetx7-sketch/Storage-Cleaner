@@ -26,7 +26,7 @@ class EncryptionManager @Inject constructor() {
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val IV_SIZE = 12
         private const val TAG_SIZE = 128
-        private const val BUFFER_SIZE = 65536 // 64KB buffer for streaming large files
+        private const val BUFFER_SIZE = 1024 * 1024 // 1MB buffer for fast streaming
     }
 
     private val keyStore = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
@@ -90,6 +90,37 @@ class EncryptionManager @Inject constructor() {
             var bytesRead: Int
             while (cipherIn.read(buffer).also { bytesRead = it } != -1) {
                 outputStream.write(buffer, 0, bytesRead)
+            }
+        }
+    }
+
+    suspend fun decryptWithProgress(
+        inputStream: InputStream,
+        outputStream: OutputStream,
+        totalSize: Long,
+        onProgress: (Float) -> Unit
+    ) = withContext(Dispatchers.IO) {
+        val iv = ByteArray(IV_SIZE)
+        val read = inputStream.read(iv)
+        if (read != IV_SIZE) return@withContext
+
+        val cipher = Cipher.getInstance(TRANSFORMATION)
+        val spec = GCMParameterSpec(TAG_SIZE, iv)
+        cipher.init(Cipher.DECRYPT_MODE, getKey(), spec)
+
+        var totalBytesRead = IV_SIZE.toLong()
+
+        CipherInputStream(inputStream, cipher).use { cipherIn ->
+            val buffer = ByteArray(BUFFER_SIZE)
+            var bytesRead: Int
+            while (cipherIn.read(buffer).also { bytesRead = it } != -1) {
+                outputStream.write(buffer, 0, bytesRead)
+                totalBytesRead += bytesRead
+
+                if (totalSize > 0) {
+                    val progress = (totalBytesRead.toFloat() / totalSize.toFloat()).coerceIn(0f, 1f)
+                    onProgress(progress)
+                }
             }
         }
     }

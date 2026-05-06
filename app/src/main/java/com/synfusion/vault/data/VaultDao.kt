@@ -29,4 +29,7 @@ interface VaultDao {
 
     @Query("SELECT * FROM vault_items WHERE hash = :hash AND size = :size LIMIT 1")
     suspend fun getItemByHashAndSize(hash: String, size: Long): VaultEntity?
+
+    @Query("UPDATE vault_items SET thumbnailPath = :path WHERE id = :id")
+    suspend fun updateThumbnailPath(id: String, path: String)
 }
