@@ -39,6 +39,36 @@ class VaultViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error = _error.asStateFlow()
 
+    private val _pendingDeleteUris = MutableStateFlow<List<Uri>?>(null)
+    val pendingDeleteUris = _pendingDeleteUris.asStateFlow()
+
+    fun clearPendingDelete() {
+        _pendingDeleteUris.value = null
+    }
+
+    fun deleteOriginals(uris: List<Uri>) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                for (uri in uris) {
+                    try {
+                        if (android.provider.DocumentsContract.isDocumentUri(context, uri)) {
+                            android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+                        } else {
+                            context.contentResolver.delete(uri, null, null)
+                        }
+                    } catch (e: SecurityException) {
+                        // For API <= 29, RecoverableSecurityException is thrown, but we handle API 30+ intent sender in the UI
+                        e.printStackTrace()
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+            } finally {
+                clearPendingDelete()
+            }
+        }
+    }
+
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val vaultItems: StateFlow<List<VaultEntity>> = combine(_selectedMediaType, _searchQuery) { type, query ->
         Pair(type, query)
@@ -191,6 +221,11 @@ class VaultViewModel @Inject constructor(
 
             _isProcessing.value = false
             _importProgress.value = null
+
+            if (mediaStoreUris.isNotEmpty()) {
+                _pendingDeleteUris.value = mediaStoreUris.toList()
+            }
+
             onComplete(mediaStoreUris.toList())
         }
     }

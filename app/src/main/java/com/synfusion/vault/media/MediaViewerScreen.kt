@@ -101,9 +101,11 @@ fun MediaViewerItem(
     var hasError by remember { mutableStateOf(false) }
     var tempFilePath by remember { mutableStateOf("") }
     var isDecrypting by remember { mutableStateOf(true) }
+    var decryptionProgress by remember { mutableFloatStateOf(0f) }
 
     LaunchedEffect(entity) {
         isDecrypting = true
+        decryptionProgress = 0f
         tempFilePath = ""
         hasError = false
 
@@ -121,7 +123,9 @@ fun MediaViewerItem(
                     BufferedInputStream(input).use { bufferedInput ->
                         FileOutputStream(tempFile).use { output ->
                             BufferedOutputStream(output).use { bufferedOutput ->
-                                encryptionManager.decrypt(bufferedInput, bufferedOutput)
+                                encryptionManager.decryptWithProgress(bufferedInput, bufferedOutput, entity.size) { progress ->
+                                    decryptionProgress = progress
+                                }
                             }
                         }
                     }
@@ -174,14 +178,28 @@ fun MediaViewerItem(
                 } else {
                     // Thumbnail Placeholder (Instant)
                     if (entity.thumbnailPath != null) {
-                        AsyncImage(
-                            model = File(entity.thumbnailPath),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Fit
-                        )
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            AsyncImage(
+                                model = File(entity.thumbnailPath),
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                                alpha = 0.5f
+                            )
+                            if (isDecrypting) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    CircularProgressIndicator(color = Color.White)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("${(decryptionProgress * 100).toInt()}%", color = Color.White)
+                                }
+                            }
+                        }
                     } else if (isDecrypting) {
-                        CircularProgressIndicator(color = Color.White)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            CircularProgressIndicator(color = Color.White)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("${(decryptionProgress * 100).toInt()}%", color = Color.White)
+                        }
                     }
                 }
             }
@@ -189,6 +207,7 @@ fun MediaViewerItem(
     }
 }
 
+@androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable
 fun VideoPlayer(path: String, isActive: Boolean) {
     val context = LocalContext.current

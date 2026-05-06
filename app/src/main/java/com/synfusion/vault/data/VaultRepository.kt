@@ -18,6 +18,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
@@ -79,12 +81,6 @@ class VaultRepository @Inject constructor(
             val originalName = getFileName(uri) ?: "file_${System.currentTimeMillis()}"
             val originalSize = getFileSize(uri)
 
-            // Duplicate prevention
-            val existingItem = vaultDao.getItemByNameAndSize(originalName, originalSize)
-            if (existingItem != null) {
-                return@withContext uri
-            }
-
             val id = UUID.randomUUID().toString()
             val typeDir = File(vaultDir, mediaType).apply { if (!exists()) mkdirs() }
 
@@ -94,8 +90,15 @@ class VaultRepository @Inject constructor(
 
             // 1. Encrypt and copy (Lossless bit-for-bit)
             val fileHash = try {
-                context.contentResolver.openInputStream(uri)?.use { inputStream ->
-                    BufferedInputStream(inputStream).use { bufferedInput ->
+                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                val inputStream = if (pfd != null) {
+                    java.io.FileInputStream(pfd.fileDescriptor)
+                } else {
+                    context.contentResolver.openInputStream(uri)
+                }
+
+                inputStream?.use { stream ->
+                    BufferedInputStream(stream).use { bufferedInput ->
                         FileOutputStream(encryptedFile).use { fileOut ->
                             BufferedOutputStream(fileOut).use { bufferedOutput ->
                                 encryptionManager.encrypt(bufferedInput, bufferedOutput)
@@ -114,41 +117,41 @@ class VaultRepository @Inject constructor(
                 return@withContext null
             }
 
-            // 3. Generate thumbnail (unencrypted for fast loading) after successful save
-            try {
-                if (mediaType == "images" || mediaType == "videos") {
-                    generateThumbnail(uri, mediaType, thumbnailFile)
-                }
-
-                // Duplicate prevention by hash
-                val existingByHash = vaultDao.getItemByHashAndSize(fileHash, originalSize)
-                if (existingByHash != null) {
-                    encryptedFile.delete()
-                    thumbnailFile.delete()
-                    return@withContext uri
-                }
-
-                // 4. Save metadata
-                val entity = VaultEntity(
-                    id = id,
-                    originalName = originalName,
-                    originalPath = uri.toString(),
-                    encryptedPath = encryptedFile.absolutePath,
-                    mediaType = mediaType,
-                    size = originalSize,
-                    hash = fileHash,
-                    dateAdded = System.currentTimeMillis(),
-                    thumbnailPath = if (thumbnailFile.exists()) thumbnailFile.absolutePath else null,
-                    vaultFolderId = folderId
-                )
-                vaultDao.insertItem(entity)
-
-                return@withContext uri
-            } catch (e: Exception) {
+            // 3. Duplicate prevention strictly by hash and size
+            val existingByHash = vaultDao.getItemByHashAndSize(fileHash, originalSize)
+            if (existingByHash != null) {
                 encryptedFile.delete()
-                thumbnailFile.delete()
-                throw e
+                return@withContext uri
             }
+
+            // 4. Save metadata quickly, thumbnailPath is initially null
+            val entity = VaultEntity(
+                id = id,
+                originalName = originalName,
+                originalPath = uri.toString(),
+                encryptedPath = encryptedFile.absolutePath,
+                mediaType = mediaType,
+                size = originalSize,
+                hash = fileHash,
+                dateAdded = System.currentTimeMillis(),
+                thumbnailPath = null,
+                vaultFolderId = folderId
+            )
+            vaultDao.insertItem(entity)
+
+            // 5. Generate thumbnail asynchronously
+            kotlinx.coroutines.GlobalScope.launch(Dispatchers.IO) {
+                try {
+                    generateThumbnail(uri, mediaType, thumbnailFile)
+                    if (thumbnailFile.exists()) {
+                        vaultDao.updateThumbnailPath(id, thumbnailFile.absolutePath)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            return@withContext uri
         } catch (e: Exception) {
             e.printStackTrace()
             return@withContext null
@@ -158,38 +161,59 @@ class VaultRepository @Inject constructor(
     private fun generateThumbnail(uri: Uri, mediaType: String, outputFile: File) {
         try {
             var bitmap: Bitmap? = null
-            if (mediaType == "videos") {
-                val retriever = MediaMetadataRetriever()
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 try {
-                    retriever.setDataSource(context, uri)
-                    bitmap = retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                } finally {
-                    retriever.release()
+                    bitmap = context.contentResolver.loadThumbnail(uri, android.util.Size(640, 640), null)
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
-            } else {
-                context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
-                    val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, options)
+            }
 
-                    val targetSize = 256
-                    var inSampleSize = 1
-                    while (options.outWidth / inSampleSize > targetSize || options.outHeight / inSampleSize > targetSize) {
-                        inSampleSize *= 2
+            if (bitmap == null) {
+                if (mediaType == "videos") {
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(context, uri)
+                        bitmap = retriever.getFrameAtTime(1000000, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    } finally {
+                        retriever.release()
                     }
+                } else if (mediaType == "audio") {
+                    val retriever = MediaMetadataRetriever()
+                    try {
+                        retriever.setDataSource(context, uri)
+                        val art = retriever.embeddedPicture
+                        if (art != null) {
+                            bitmap = BitmapFactory.decodeByteArray(art, 0, art.size)
+                        }
+                    } finally {
+                        retriever.release()
+                    }
+                } else {
+                    context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, options)
 
-                    options.inJustDecodeBounds = false
-                    options.inSampleSize = inSampleSize
-                    bitmap = BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, options)
+                        val targetSize = 640
+                        var inSampleSize = 1
+                        while (options.outWidth / inSampleSize > targetSize || options.outHeight / inSampleSize > targetSize) {
+                            inSampleSize *= 2
+                        }
+
+                        options.inJustDecodeBounds = false
+                        options.inSampleSize = inSampleSize
+                        bitmap = BitmapFactory.decodeFileDescriptor(pfd.fileDescriptor, null, options)
+                    }
                 }
             }
 
             bitmap?.let {
                 FileOutputStream(outputFile).use { out ->
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                        it.compress(Bitmap.CompressFormat.WEBP_LOSSY, 80, out)
+                        it.compress(Bitmap.CompressFormat.WEBP_LOSSLESS, 100, out)
                     } else {
                         @Suppress("DEPRECATION")
-                        it.compress(Bitmap.CompressFormat.WEBP, 80, out)
+                        it.compress(Bitmap.CompressFormat.WEBP, 100, out)
                     }
                 }
             }
@@ -220,22 +244,27 @@ class VaultRepository @Inject constructor(
             val extension = MimeTypeMap.getFileExtensionFromUrl(item.originalName)
             val mimeType = MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension)
 
-            // Duplicate prevention at destination
+            var exportName = item.originalName
+
+            // Duplicate detection at destination (modify filename if needed)
             val projection = arrayOf(MediaStore.MediaColumns._ID)
             val selection = "${MediaStore.MediaColumns.DISPLAY_NAME} = ? AND ${MediaStore.MediaColumns.SIZE} = ?"
-            val selectionArgs = arrayOf(item.originalName, item.size.toString())
+            val selectionArgs = arrayOf(exportName, item.size.toString())
 
             context.contentResolver.query(collection, projection, selection, selectionArgs, null)?.use { cursor ->
                 if (cursor.moveToFirst()) {
-                    // File already exists in gallery, just remove from vault
-                    deleteVaultItem(item)
-                    val id = cursor.getLong(cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID))
-                    return@withContext ContentUris.withAppendedId(collection, id).toString()
+                    // File already exists with same name and size, adjust export name to prevent overwrite/skipping
+                    val dotIndex = exportName.lastIndexOf('.')
+                    exportName = if (dotIndex != -1) {
+                        "${exportName.substring(0, dotIndex)}_${System.currentTimeMillis()}${exportName.substring(dotIndex)}"
+                    } else {
+                        "${exportName}_${System.currentTimeMillis()}"
+                    }
                 }
             }
 
             val contentValues = ContentValues().apply {
-                put(MediaStore.MediaColumns.DISPLAY_NAME, item.originalName)
+                put(MediaStore.MediaColumns.DISPLAY_NAME, exportName)
                 put(MediaStore.MediaColumns.SIZE, item.size)
                 if (mimeType != null) put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -246,20 +275,26 @@ class VaultRepository @Inject constructor(
 
             val newUri = context.contentResolver.insert(collection, contentValues) ?: return@withContext null
 
-            context.contentResolver.openOutputStream(newUri)?.use { outputStream ->
-                BufferedOutputStream(outputStream).use { bufferedOutput ->
-                    encryptedFile.inputStream().use { inputStream ->
-                        BufferedInputStream(inputStream).use { bufferedInput ->
-                            encryptionManager.decrypt(bufferedInput, bufferedOutput)
+            try {
+                context.contentResolver.openOutputStream(newUri)?.use { outputStream ->
+                    BufferedOutputStream(outputStream).use { bufferedOutput ->
+                        encryptedFile.inputStream().use { inputStream ->
+                            BufferedInputStream(inputStream).use { bufferedInput ->
+                                encryptionManager.decrypt(bufferedInput, bufferedOutput)
+                            }
                         }
                     }
                 }
-            }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                contentValues.clear()
-                contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
-                context.contentResolver.update(newUri, contentValues, null, null)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    contentValues.clear()
+                    contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    context.contentResolver.update(newUri, contentValues, null, null)
+                }
+            } catch (e: Exception) {
+                // If stream or update fails, delete the corrupted empty media store entry
+                context.contentResolver.delete(newUri, null, null)
+                throw e
             }
 
             // After successful export, delete from vault
